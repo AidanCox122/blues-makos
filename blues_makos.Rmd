@@ -1,0 +1,2946 @@
+---
+title: "Vertical Habitat Use of NA Blue and Mako Sharks"
+author: "Aidan Cox"
+date: "1/5/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# LIBRARY LIST
+
+``` {r Library List, echo=FALSE}
+# general #
+library(tidyverse)
+library(ggplot2)
+library(writexl)
+library(readxl)
+
+# clustering #
+library(NbClust)
+library(tags2etuff)
+library(devtools)
+library(dendextend)
+library(hms)
+library(vegan)
+library(ggdendro)
+
+# mapping #
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rgeos)
+library(ggspatial)
+library(sf)
+library(viridis)
+library(ncdf4)
+
+# environmental data #
+library(readr)
+library(raster)
+library(HMMoce)
+library(lunar)
+devtools::load_all('~/Desktop/blues-makos/analyzePSAT')
+
+# logistic regression #
+library(foreign)
+library(nnet)
+library(reshape2)
+library(mclogit)
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+```
+
+## DATA PROCESSING
+# Load the etuff data for blue and mako sharks ---- 
+``` {r Read etuff files}
+fList <- list.files("~/Desktop/blues-makos/etuff_new/", full.names = T)
+blues <- fList[grep('160424', fList)]
+makos <- fList[grep('159924', fList)]
+
+# for mako sharks
+for(i in 1:length(makos)) {
+  etuff <- read_etuff(makos[i])
+  tad <- get_tad(etuff)
+  tad <- tad %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
+  tad <- tad %>% pivot_wider(id_cols = Date,
+              names_from = bin,
+              values_from = freq,
+              values_fn = list(freq = mean))
+  tad$ptt <- etuff$meta$ptt
+  tad$owner <- etuff$meta$person_owner
+  assign(paste("mtad", i, sep = "_"), tad)
+  rm(etuff, tad)
+  print(i)
+}
+
+# for blue sharks 
+for(i in 1:length(blues)) {
+  etuff <- read_etuff(blues[i])
+  tad <- get_tad(etuff)
+  tad <- tad %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
+  tad <- tad %>% pivot_wider(id_cols = Date,
+                             names_from = bin,
+                             values_from = freq,
+                             values_fn = list(freq = mean))
+  tad$ptt <- etuff$meta$ptt
+  tad$owner <- etuff$meta$person_owner
+  assign(paste("btad", i, sep = "_"), tad)
+  rm(etuff, tad)
+  print(i)
+}
+```
+
+# now establish common bins between the different tags
+``` {r Common Depth Bins}
+# first make sure that Greg's tags have 14 tad bins and Cam's tags have 12
+# makos
+mtad_3$TimeAtDepthBin12 <- 0 # Greg's tag
+mtad_3$TimeAtDepthBin13 <- 0 # Greg's tag
+mtad_3$TimeAtDepthBin14 <- 0 # Greg's tag
+
+mtad_5$TimeAtDepthBin11 <- 0 # Cam's tag
+mtad_5$TimeAtDepthBin12 <- 0 # Cam's tag
+
+mtad_6$TimeAtDepthBin12 <- 0 # Cam's tag
+
+mtad_7$TimeAtDepthBin12 <- 0 # Cam's tag
+
+# blues (all Cam's tags)
+btad_1$TimeAtDepthBin11 <- 0
+btad_1$TimeAtDepthBin12 <- 0
+
+btad_2$TimeAtDepthBin12 <- 0
+
+btad_3$TimeAtDepthBin12 <- 0
+
+btad_7$TimeAtDepthBin12 <- 0
+
+btad_9$TimeAtDepthBin11 <- 0
+btad_9$TimeAtDepthBin12 <- 0
+
+btad_11$TimeAtDepthBin12 <- 0
+
+# now combine bins to create the below distribution
+bins_max <- c(10, 50, 100, 200, 300, 400, 500, 2000)
+# Camrin's Innate Bins = c(2, 10, 20, 50, 100, 200, 300, 400, 500, 700, 1000, 2000)
+# Gregory's Innate Bins = c(5, 10, 25, 50, 75, 100, 150, 200, 300, 400, 500, 600, 800, 2000)
+
+# makos
+gregory_mako <- rbind(mtad_1, mtad_2, mtad_3) 
+gregory_mako <- gregory_mako %>% transmute(
+  Date = Date,
+  bin1 = TimeAtDepthBin01 + TimeAtDepthBin02,
+  bin2 = TimeAtDepthBin03 + TimeAtDepthBin04,
+  bin3 = TimeAtDepthBin05 + TimeAtDepthBin06,
+  bin4 = TimeAtDepthBin07 + TimeAtDepthBin08,
+  bin5 = TimeAtDepthBin09,
+  bin6 = TimeAtDepthBin10,
+  bin7 = TimeAtDepthBin11,
+  bin8 = TimeAtDepthBin12 + TimeAtDepthBin13 + TimeAtDepthBin14,
+  ptt = ptt,
+  owner = owner
+)
+camrin_mako <- rbind(mtad_4, mtad_5, mtad_6, mtad_7)
+camrin_mako <- camrin_mako %>% transmute(
+  Date = Date,
+  bin1 = TimeAtDepthBin01 + TimeAtDepthBin02,
+  bin2 = TimeAtDepthBin03 + TimeAtDepthBin04,
+  bin3 = TimeAtDepthBin05,
+  bin4 = TimeAtDepthBin06,
+  bin5 = TimeAtDepthBin07,
+  bin6 = TimeAtDepthBin08,
+  bin7 = TimeAtDepthBin09,
+  bin8 = TimeAtDepthBin10 + TimeAtDepthBin11 + TimeAtDepthBin12,
+  ptt = ptt,
+  owner = owner
+)
+
+tad_mako <- rbind(gregory_mako, camrin_mako)
+
+rm(gregory_mako, camrin_mako)
+
+# blues 
+
+tad_blues <- rbind(btad_1, btad_2, btad_3, btad_4, btad_5, btad_6, btad_7, btad_8, btad_9, btad_10, btad_11, btad_12, btad_13)
+tad_blues <- tad_blues %>% transmute(
+  Date = Date,
+  bin1 = TimeAtDepthBin01 + TimeAtDepthBin02,
+  bin2 = TimeAtDepthBin03 + TimeAtDepthBin04,
+  bin3 = TimeAtDepthBin05,
+  bin4 = TimeAtDepthBin06,
+  bin5 = TimeAtDepthBin07,
+  bin6 = TimeAtDepthBin08,
+  bin7 = TimeAtDepthBin09,
+  bin8 = TimeAtDepthBin10 + TimeAtDepthBin11 + TimeAtDepthBin12,
+  ptt = ptt,
+  owner = owner
+)
+```
+
+```{r cleanup}
+rm(mtad_1, mtad_2, mtad_3, mtad_4, mtad_5, mtad_6, btad_1, btad_2, btad_3, btad_4, btad_5, btad_6, btad_7, btad_8, btad_9, btad_10, btad_11, btad_12, btad_13 )
+```
+
+## GENERAL COMPARISONS
+# Time-at-temperature (general)
+Construct time at temperature profiles by adding temperature data to time-series of depth occupancy. Note: For mako sharks, only camrin's tags can be used for this computation since greg's tags don't contian series information
+
+``` {r Time-at-temperature}
+# MAKOS
+pdt <- data.frame()
+
+for (i in 4:length(makos)) {
+  etuff <- read_etuff(makos[i])
+  hdr <- get_header(makos[i])
+  temp <- get_pdt(etuff)
+  interp <- interp_pdt(etuff)
+  series <- get_series(etuff)
+  series <- filter(series, !is.na(depth))
+  series <- add_series_temp(series, temp, interp)
+  series <- filter(series, !is.na(temperature))
+  series$dn <- add_daynight(series, etuff)
+  series$ptt <- hdr$ptt
+  pdt <- rbind(pdt, series)
+  rm(etuff, hdr, temp, interp, series)
+  print(i)
+}
+
+ggplot(data = pdt) +
+  geom_histogram(data = subset(pdt, dn == "d"), aes(x = temperature, y = -(..count..)/sum(..count..)), fill = NA, color = "black") +
+  geom_histogram(data = subset(pdt, dn =="n"), aes(x = temperature, y = (..count..)/sum(..count..)), color = "black") +
+  coord_flip() +
+  ylab("Proportion") +
+  xlab("Temperature (ºC)") +
+  ggtitle("Mako Shark Time at Temperature") +
+  theme_classic()
+
+# BLUES
+pdtb <- data_frame()
+
+for (i in 1:length(blues)) {
+  etuff <- read_etuff(blues[i])
+  hdr <- get_header(blues[i])
+  temp <- get_pdt(etuff)
+  interp <- interp_pdt(etuff)
+  series <- get_series(etuff)
+  series <- filter(series, !is.na(depth))
+  series <- add_series_temp(series, temp, interp)
+  series <- filter(series, !is.na(temperature))
+  series$dn <- add_daynight(series, etuff)
+  series$ppt <- hdr$ptt
+  pdtb <- rbind(pdtb, series)
+  rm(etuff, hdr, temp, interp, series)
+  print(i)
+}
+
+ggplot() +
+  geom_histogram(data = subset(pdtb, dn == "d"), aes(x = temperature, y = -(..count..)/sum(..count..)), fill = NA, color = "black") +
+  geom_histogram(data = subset(pdtb, dn == "n"), aes(x = temperature, y = (..count..)/sum(..count..)), color = "black") +
+  coord_flip() +
+  ylab("Proportion") +
+  xlab("Temperature (ºC)") +
+  ggtitle("Blue Shark Time at Temperature") +
+  theme_classic()
+```
+
+# Time-at-depth (general)
+``` {r Time-at-depth}
+# MAKOS
+ggplot() +
+  geom_histogram(data = subset(pdt, dn == "d"), aes(x = depth, y = -(..count..)/sum(..count..)), fill = NA, color = "black") +
+  geom_histogram(data = subset(pdt, dn == "n"), aes(x = depth, y = (..count..)/sum(..count..)), color = "black") +
+  scale_x_reverse() +
+  scale_y_continuous(limits = c(-0.55, 0.55), breaks = c(-0.4, -0.2, 0, 0.2, 0.4), labels = c("0.4", "0.2", "0", "0.2", "0.4")) +
+  coord_flip() +
+  ylab("Proportion") +
+  xlab("Depth (m)") +
+  ggtitle("Mako Time at Depth") +
+  theme_classic()
+
+# BLUES
+
+ggplot() +
+  geom_histogram(data = subset(pdtb, dn == "d"), aes(x = depth, y = -(..count..)/sum(..count..)), fill = NA, color = "black") +
+  geom_histogram(data = subset(pdtb, dn == "n"), aes(x = depth, y = (..count..)/sum(..count..)), color = "black") +
+  expand_limits(x = c(0, 1300)) +
+  scale_x_reverse(breaks = c(0, 400, 800, 1200), labels = c("0", "400", "800", "1200")) +
+  scale_y_continuous(breaks = c(-0.4, -0.2, 0, 0.2, 0.4), labels = c("0.4", "0.2", "0", "0.2", "0.4")) +
+  coord_flip() +
+  ylab("Proportion") +
+  xlab("Depth (m)") +
+  ggtitle("Blue Time at Depth") +
+  theme_classic()
+
+# COMBO
+# Note: the binwidth here is 50, but it occurs around breaks in x (ie. -25-25, 25-75, etc.)
+ggplot() +
+  geom_histogram(data = pdtb, aes(x = depth, y = (..count..)/sum(..count..)), fill = NA, color = "blue", binwidth = 50) +
+  geom_histogram(data = pdt, aes(x = depth, y = -(..count..)/sum(..count..)), color = "black", binwidth = 50) +
+  expand_limits(x = c(0, 1300)) +
+  scale_x_reverse(breaks = c(0, 400, 800, 1200, 1300), labels = c("0", "400", "800", "1200", "1300")) +
+  scale_y_continuous(breaks = c(-0.25, 0, 0.25, 0.5), labels = c("0.25", "0", "0.25", "0.5")) +
+  coord_flip() +
+  ylab("Proportion of Time at Depth") +
+  xlab("Depth (m)") +
+  ggtitle("General Vertical Habitat") +
+  theme_classic()
+
+```
+
+# Proportion Time-at-depth heatmap
+Calculate the liklihood of depth occupancy across a 24-hour period. 
+
+NOTE: Consider these figures carefully - are the same number of observations being counted at each time of day. Why is the normalized density being multiplied by the number of observations?
+
+``` {r TAD Heatmaps}
+# MAKOS
+props <- pdt %>% separate(DateTime_local, c("Date", "Time_Local"), sep =  "([ ])") %>%
+  group_by(Time_Local) %>%
+  count(depth)
+
+duptimes <- props$n
+idx <- rep(1:nrow(props), duptimes)
+duprops <- props[idx,]
+duprops <- duprops[,-c(3)]
+rm(props,duptimes, idx)
+
+duprops$Time_Local <- as.hms(duprops$Time_Local)
+duprops$Time_Local <- as.numeric(duprops$Time_Local)
+
+ggplot(data = duprops, aes(x = Time_Local, y = depth) ) +
+  stat_density_2d(aes(fill = ((..density..)*n)), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette = "Spectral") + 
+  scale_y_reverse() +
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  xlab("Time of Day") +
+  ylab("Depth(m)") +
+  theme_minimal()
+
+# BLUES
+
+propsb <- pdtb %>% separate(DateTime_local, c("Date", "Time_Local"), sep =  "([ ])") %>%
+  group_by(Time_Local) %>%
+  count(depth)
+
+duptimes <- propsb$n
+idx <- rep(1:nrow(propsb), duptimes)
+dupropsb <- propsb[idx,]
+dupropsb <- dupropsb[,-c(3)]
+rm(propsb, duptimes, idx)
+
+dupropsb$Time_Local <- as.hms(dupropsb$Time_Local)
+dupropsb$Time_Local <- as.numeric(dupropsb$Time_Local)
+
+ggplot(data = dupropsb, aes(x = Time_Local, y = depth) ) +
+  stat_density_2d(aes(fill = ((..density..)*n)), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette = "Spectral") + 
+  scale_y_reverse() +
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  xlab("Time of Day") +
+  ylab("Depth(m)") +
+  theme_minimal()
+```
+
+# Proportion Time-at-temperature heatmap
+Calculate the liklihood of temperature occupancy across a 24-hour period:
+
+NOTE: Beware of a similar connundrum as in the above chunk...
+``` {r TAT Heatmap}
+# makos
+props <- pdt %>% separate(DateTime_local, c("Date", "Time_Local"), sep =  "([ ])") %>%
+  group_by(Time_Local) %>%
+  count(temperature)
+
+ggplot(data = props, aes(x = as.hms(Time_Local), y = temperature) ) +
+  stat_density_2d(aes(fill = ((..density..)*n)), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette = "Spectral") + 
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  xlab("Time of Day") +
+  ylab("Temperature(ºC)") +
+  theme_minimal()
+
+# blues
+propsb <- pdtb %>% separate(DateTime_local, c("Date", "Time_Local"), sep =  "([ ])") %>%
+  group_by(Time_Local) %>%
+  count(temperature)
+
+ggplot(data = propsb, aes(x = as.hms(Time_Local), y = temperature) ) +
+  stat_density_2d(aes(fill = ((..density..)*n)), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette = "Spectral") + 
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  xlab("Time of Day") +
+  ylab("Temperature(ºC)") +
+  theme_minimal()
+
+# cleanup
+rm(props, propsb, duptimes, idx, duprops, dupropsb)
+```
+# Time-series information
+These loops compile the time-series data from each of Camrin's tagged sharks (Greg's tags did not collect this information)
+
+```{r get_series}
+# makos
+for (i in 4:length(makos)) {
+  etuff <- read_etuff(makos[i])
+  series <- get_series(etuff)
+  series$dn <- add_daynight(series, etuff)
+  series$ptt <- etuff$meta$ptt
+  series$dup <- series$DateTime_local
+  series <- series %>% separate(dup, into = c("Date", "Local_Time"), sep = "([ ])")
+  series <- series %>% mutate(
+    kode = paste(Date, ptt, sep = "_")
+  )
+  series <- series %>% filter(!is.na(depth))
+  series$species <- "I.oxyrinchus"
+  assign(paste("mseries",i, sep = "_" ), series)
+  rm(etuff, series)
+  print(i)
+}
+
+mako_series <- rbind(mseries_4, mseries_5, mseries_6, mseries_7)
+
+# blues
+for (i in 1:length(blues)) {
+  etuff <- read_etuff(blues[i])
+  series <- get_series(etuff)
+  series$dn <- add_daynight(series, etuff)
+  series$ptt <- etuff$meta$ptt
+  series$dup <- series$DateTime_local
+  series <- series %>% separate(dup, into = c("Date", "Local_Time"), sep = "([ ])")
+  series <- series %>% mutate(
+    kode = paste(Date, ptt, sep = "_")
+  )
+  series <- series %>% filter(!is.na(depth))
+  series$species <- "P.glauca"
+  assign(paste("bseries",i, sep = "_" ), series)
+  rm(etuff, series)
+  print(i)
+}
+
+bseries_12 <- bseries_12[,-4]
+blue_series <- rbind(bseries_1, bseries_2, bseries_3, bseries_4, bseries_5, bseries_6, bseries_7, bseries_8, bseries_9, bseries_10, bseries_11, bseries_12, bseries_13)
+```
+
+# general vertical habitat figure
+Here we will compile series data from all tagged sharks which recorded data from 2016-01-18 through 2016-01-25:
+``` {r series general vert. habitat}
+bs <- blue_series %>% filter(Date == "2016-01-18" | Date == "2016-01-19" | Date == "2016-01-20" | Date == "2016-01-21" | Date == "2016-01-22" | Date == "2016-01-23" | Date == "2016-01-24" | Date == "2016-01-25")
+bs <- bs %>% filter(ptt == 141259)
+bs$DateTime_local <- bs$DateTime - 18000
+bs$species <- "P.glauca"
+
+ms <- mako_series %>% filter(Date == "2016-01-18" | Date == "2016-01-19" | Date == "2016-01-20" | Date == "2016-01-21" | Date == "2016-01-22" | Date == "2016-01-23" | Date == "2016-01-24" | Date == "2016-01-25")
+ms$DateTime_local <- ms$DateTime - 18000
+ms$species <- "I.oxyrinchus"
+
+cs <- rbind(ms, bs)
+cs$ptt <- factor(cs$ptt)
+
+ggplot() +
+  geom_line(data = cs, aes(x = DateTime_local, y = depth, color = species)) +
+  scale_y_reverse() +
+  facet_grid(species~.) +
+  theme_classic()
+  
+```
+
+# Tagging location map
+``` {r Tagging locations and track maps}
+# makos
+for(i in 1:length(makos)) {
+  etuff <- read_etuff(makos[i])
+  track <- get_track(etuff)
+  track$ptt <- etuff$meta$ptt
+  track <- track %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
+  track <- track %>% mutate(
+    kode = paste(Date, ptt, sep = "_")
+  )
+  assign(paste("mtrack",i, sep = "_" ), track)
+  rm(etuff, track)
+  print(i)
+}
+
+mako_tracks <- rbind(mtrack_1, mtrack_2, mtrack_3, mtrack_4, mtrack_5, mtrack_6, mtrack_7)
+mako_tracks$species <- "I.oxyrinchus"
+
+# blues
+for(i in 1:length(blues)) {
+  etuff <- read_etuff(blues[i])
+  track <- get_track(etuff)
+  track$ptt <- etuff$meta$ptt
+  track <- track %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
+  track <- track %>% mutate(
+    kode = paste(Date, ptt, sep = "_")
+  )
+  assign(paste("btrack",i, sep = "_" ), track)
+  rm(etuff, track)
+  print(i)
+}
+
+blue_tracks <- rbind(btrack_1, btrack_2, btrack_3, btrack_4, btrack_5, btrack_6, btrack_7, btrack_8, btrack_9, btrack_10, btrack_11, btrack_12, btrack_13)
+blue_tracks$species <- "P.glauca"
+
+r <- c("/Volumes/A_DRIVE/bathy/northwest_atlantic.nc")
+r <- raster(r)
+r <- raster::aggregate(r, fact = 5)
+r_df <- as.data.frame(r, xy = TRUE)
+r_df <- r_df %>% filter(Elevation.relative.to.sea.level < 0)
+
+hue_pal()(2)
+
+ggplot(data = r_df) +
+  geom_raster(aes(x = x, y = y, fill = Elevation.relative.to.sea.level), show.legend = FALSE) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  coord_quickmap() +
+  
+  geom_path(data = btrack_1, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_2, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_3, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_4, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_5, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_6, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_7, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_8, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_9, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_10, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_11, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_12, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_13, aes(longitude, latitude), color = "#00BFC4") +
+  
+  geom_point(data = btrack_1[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_2[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_3[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_4[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_5[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_6[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) +
+  geom_point(data = btrack_7[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_8[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_9[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_10[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_11[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_12[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) +
+  geom_point(data = btrack_13[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) +
+  
+  geom_point(data = btrack_1[nrow(btrack_1),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_2[nrow(btrack_2),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_3[nrow(btrack_3),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_4[nrow(btrack_4),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_5[nrow(btrack_5),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_6[nrow(btrack_6),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_7[nrow(btrack_7),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_8[nrow(btrack_8),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_9[nrow(btrack_9),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_10[nrow(btrack_10),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_11[nrow(btrack_11),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_12[nrow(btrack_12),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_13[nrow(btrack_13),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  
+  geom_path(data = mtrack_1, aes(longitude, latitude), color = "#F8766D") +
+  geom_path(data = mtrack_2, aes(longitude, latitude), color = "#F8766D") +
+  geom_path(data = mtrack_3, aes(longitude, latitude), color = "#F8766D") +
+  geom_path(data = mtrack_4, aes(longitude, latitude), color = "#F8766D") +
+  geom_path(data = mtrack_5, aes(longitude, latitude), color = "#F8766D") +
+  geom_path(data = mtrack_6, aes(longitude, latitude), color = "#F8766D") +
+  geom_path(data = mtrack_7, aes(longitude, latitude), color = "#F8766D") +
+
+  
+  geom_point(data = mtrack_1[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = mtrack_2[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = mtrack_3[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = mtrack_4[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = mtrack_5[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = mtrack_6[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) +
+  geom_point(data = mtrack_7[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) +
+
+  
+  geom_point(data = mtrack_1[nrow(mtrack_1),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = mtrack_2[nrow(mtrack_2),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = mtrack_3[nrow(mtrack_3),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = mtrack_4[nrow(mtrack_4),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = mtrack_5[nrow(mtrack_5),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = mtrack_6[nrow(mtrack_6),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = mtrack_7[nrow(mtrack_7),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+
+  
+  xlab("Longitude") +
+  ylab("Latitude") +
+  theme_minimal() +
+  theme(element_blank())
+```
+``` {r cleanup}
+rm(mtrack_1, mtrack_2, mtrack_3, mtrack_4, mtrack_5, mtrack_6, btrack_1, btrack_2, btrack_3, btrack_4, btrack_5, btrack_6, btrack_7, btrack_8, btrack_9, btrack_10, btrack_11, btrack_12, btrack_13)
+```
+
+# MAKING DATA SHOWCASE - SERIES TRACK OF BLUE SHARK DEPTH USE
+``` {r SHOWCASE - 1 BLUE TRACK DAY}
+# USING TRACKING DAY 2016-01-03 FROM BLUE SHARK 01
+
+test <- bseries_7
+test$duplicate <- test$DateTime_local
+test <- test %>% separate(duplicate, into = c("Date_Local", "Local_Time"), sep = "([ ])")
+test <- test %>% filter(Date == "2016-10-24")
+
+test <- inner_join(test,pdtb) 
+
+
+ggplot(data = test) + 
+  geom_point(aes(x = as_hms(Time), y = depth, color = temperature)) +
+  scale_color_viridis(option = "plasma") +
+  scale_y_reverse() +
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  ylab("Depth") +
+  xlab("Time") +
+  theme_classic()
+
+# TAD SUMMARY FOR THIS SERIES DATA - THIS IS FOR PRESENTATION PURPOSES ONLY BECAUSE THE VALUES OF THE LAST BIN ARE EDITED
+test <- omega_combo %>% filter(ptt.x == 141254 & Date.x == "2016-01-01")
+formated <- data.frame(
+  depth = c("0-10", "11-50", "51-100", "101-200", "201-300", "301-400", "401-500", "501-2000"),
+  bin = c(rep(1:8, each = 1)),
+  frequency = c(17.9,	13.7,	11.6,	16.8,	23.2,	3.2,	8.4,	0)
+)
+
+
+ggplot(data = formated, aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  xlab("Depth (m)") +
+  scale_x_reverse(breaks = c(1, 2, 3, 4, 5, 6, 7, 8), labels = c("0-10", "11-50", "51-100", "101-200", "201-300", "301-400", "401-500", "501-2000")) +
+  ylab("Proportion of Time") +
+  coord_flip() +
+  theme_classic()
+```
+
+## MAKING HIGH-RESOLUTION CLUSTERING DATASET ##
+```{r High res. cluster}
+# adjust the time resolution of tag 206771 to match others 
+toDelete <- c(seq(0,nrow(mseries_7), 2))
+mseries_7.short <- mseries_7[-toDelete,]
+rm(toDelete)
+
+mako_series <- rbind(mseries_4, mseries_5, mseries_6, mseries_7.short)
+combo_series <- rbind(mako_series, blue_series)
+
+# filter out tracking days with less than 75% of their data
+high_res <- combo_series %>% group_by(ptt) %>% count(Date)
+high_res <- high_res %>% filter(n >= 345) # there are 675 (928) tracking days with more than 75% (60%) of their series data
+
+high_res <- left_join(combo_series, high_res, by = c("Date", "ptt"))
+high_res <- high_res %>% filter(!is.na(n))
+# back-check
+unique(high_res$kode) # vector of length 675
+high_res %>% filter(species == "I.oxyrinchus") %>% count(kode) # 157 (194) tracking days
+high_res %>% filter(species == "P.glauca") %>% count(kode) # 518 (734) tracking days
+
+# count the net observations occur in each depth bin for day and night time
+high_res <- high_res %>% group_by(ptt, Date, dn) 
+daily.count <- high_res %>% count(Date)
+high_res <- high_res %>% summarise(
+  b1 = sum((depth < 10)),
+  b2 = sum((depth >= 10 & depth <50)),
+  b3 = sum((depth >= 50 & depth<100)),
+  b4 = sum((depth >= 100 & depth<200)),
+  b5 = sum((depth >= 200 & depth<300)),
+  b6 = sum((depth >= 300 & depth<400)),
+  b7 = sum((depth >= 400 & depth<500)),
+  b8 = sum((depth >= 500)),
+  sd = sd(depth),
+  total = sum(b1,b2,b3,b4,b5,b6,b7,b8)
+)
+
+# check that sum of rows matches daily.count values
+high_res <- ungroup(high_res)
+test3 <- high_res %>% dplyr::select(ptt, Date, dn, total)
+
+sum(daily.count$n != test3$total) # those look identical - moving on!
+rm(test3)
+# separate day and night time observations for each tracking day
+daytime <- high_res %>% filter(dn == "d")
+nightime <- high_res %>% filter(dn == "n")
+
+# convert net counts into percentages within each depth bin
+daytime <- daytime %>% transmute(
+  ptt = ptt,
+  Date = Date,
+  d.b1 = (b1/total) * 100,
+  d.b2 = (b2/total) * 100,
+  d.b3 = (b3/total) * 100,
+  d.b4 = (b4/total) * 100,
+  d.b5 = (b5/total) * 100,
+  d.b6 = (b6/total) * 100,
+  d.b7 = (b7/total) * 100,
+  d.b8 = (b8/total) * 100,
+  d.sd = sd
+)
+
+nightime <- nightime %>% transmute(
+  ptt = ptt,
+  Date = Date,
+  n.b1 = (b1/total) * 100,
+  n.b2 = (b2/total) * 100,
+  n.b3 = (b3/total) * 100,
+  n.b4 = (b4/total) * 100,
+  n.b5 = (b5/total) * 100,
+  n.b6 = (b6/total) * 100,
+  n.b7 = (b7/total) * 100,
+  n.b8 = (b8/total) * 100,
+  n.sd = sd
+)
+
+high_res <- inner_join(daytime, nightime, by = c("ptt", "Date"))
+rm(daytime, nightime)
+
+# now create a species stamp to apply to this object
+species_stmp <- data.frame(
+  ptt = c(141257, 163098, 163096, 141254, 141256, 141259, 106754, 133016, 133017, 133018, 133021, 141247, 141255, 163097, 141258, 154096, 78680,  78682,  78683, 206771),
+  species = c("I.oxyrinchus", "I.oxyrinchus", "I.oxyrinchus", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "I.oxyrinchus", "I.oxyrinchus", "I.oxyrinchus", "I.oxyrinchus")
+)
+high_res <- left_join(high_res, species_stmp, by = c("ptt"))
+
+# add kode to high_res
+high_res <- high_res %>% mutate(
+  kode = paste(Date, ptt, sep = "_")
+)
+
+# add depth over location of each tracking day to high-resolution
+high_res <- inner_join(high_res, bathy_stamp, by = c("kode"))
+```
+
+## CLUSTER ANALYSIS 2.0: HIGH RESOLUTION TAD SUMMARIES ##
+This cluster anlysis is performed using the day/night summaries of time-at-depth with the further addition of depth standard deviation as a proxy for total vertical movement. These data are compiled from time-series depth information in chunk #15: 
+
+# Step 1: run the clusters with each species - can include species as a cluster component or not
+``` {r Heirarchical clustering}
+# remove tracking days over water more shallow than 1000 meters
+Ctad2 <- high_res %>% filter(depth <= -1000)
+# Create a dataframe of only cluster variables
+Ctad2 <- Ctad2 %>% dplyr::select(-c("ptt", "Date", "species", "kode", "depth"))
+
+## Heirarchical Clustering
+# create a distance matrix
+combo_dist2 <- dist(Ctad2, method = "manhattan")
+# perform cluster assignment
+Clust2 <- hclust(combo_dist2, method = "average")
+```
+
+# Step 2: Assessing the statistical validity of the clusters
+``` {r NbClust tests}
+# CH INDEX:
+NbClust(data = Ctad2, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "ch")
+# Raw: 10
+
+# DUDA TEST: Smallest number of clusters which produces a critical value greater than the Duda score
+NbClust(data = Ctad2, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "duda")
+# Raw: 2 clusters 
+
+# C INDEX
+NbClust(data = Ctad2, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "cindex")
+# Raw: 7 clusters 
+
+# BEALE INDEX
+NbClust(data = Ctad2, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "beale")
+# Raw: 2 clusters 
+```
+
+Step 3: partition the data into its rightful cluster
+```{r fine-scale cluster assignment}
+combo_sub_grp2 <- cutree(Clust2, k = 11)
+table(combo_sub_grp2)
+
+Ctad2$cluster <- combo_sub_grp2
+
+high_res$cluster <- combo_sub_grp2
+clust_stamp2 <- high_res %>% dplyr::select(kode, species, cluster)
+```
+
+## CLUSTER COMPARISONS
+# TAD profiles
+Create basic histograms of cluster tad profiles 
+``` {r TAD profiles}
+# create histograms to visualize the clusters
+daytime.combo_summ <- Ctad2 %>%
+  group_by(cluster) %>%
+  summarize(
+    d.one = mean(d.b1),
+    d.two = mean(d.b2),
+    d.three = mean(d.b3),
+    d.four = mean(d.b4),
+    d.five = mean(d.b5),
+    d.six = mean(d.b6),
+    d.seven = mean(d.b7),
+    d.eight = mean(d.b8),
+  )
+daytime.combo_summ <- dplyr::select(combo_summ, -c(cluster))
+
+format_tad_combo <- data.frame(
+  depth = c(rep(bins_max, times = 11)),
+  bin = c(rep(1:8, times = 11)),
+  frequency = c(as.numeric(daytime.combo_summ[1,]),
+                as.numeric(daytime.combo_summ[2,]),
+                as.numeric(daytime.combo_summ[3,]),
+                as.numeric(daytime.combo_summ[4,]),
+                as.numeric(daytime.combo_summ[5,]),
+                as.numeric(daytime.combo_summ[6,]),
+                as.numeric(daytime.combo_summ[7,]),
+                as.numeric(daytime.combo_summ[8,]),
+                as.numeric(daytime.combo_summ[9,]),
+                as.numeric(daytime.combo_summ[10,])
+                as.numeric(daytime.combo_summ[11,])),
+  cluster = c(rep(1:11, each = 8))
+)
+
+
+# CLUSTER 1
+
+format_tad_combo %>%
+  filter(cluster == 1) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 1") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy") +
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 1) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 1 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 2
+
+format_tad_combo %>%
+  filter(cluster == 2) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 2") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy") +
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 2) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 2 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 3
+
+format_tad_combo %>%
+  filter(cluster == 3) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 3") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 3) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 3 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 4
+
+format_tad_combo %>%
+  filter(cluster == 4) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 4") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 4) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 4 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 5
+
+format_tad_combo %>%
+  filter(cluster == 5) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 5") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 5) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 5 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 6
+
+format_tad_combo %>%
+  filter(cluster == 6) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 6") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 6) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 6 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 7
+
+format_tad_combo %>%
+  filter(cluster == 7) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 7") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 7) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 7 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 8
+
+format_tad_combo %>%
+  filter(cluster == 8) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 8") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 8) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 8 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 9
+
+format_tad_combo %>%
+  filter(cluster == 9) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 9") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 9) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 9 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+```
+
+# Omega Combo
+This chunk creates the omega_combo data frame with environmental data for each tracking day. 
+```{r omega combo}
+tad_combo <- tad_combo %>% mutate(
+  kode = paste(Date, ptt, sep = "_")
+)
+
+omega_mako <- read_excel("~/Desktop/blues-makos/data/omega_mako.xlsx")
+omega_blue <- read_excel("~/Desktop/blues-makos/data/omega_blue.xlsx")
+
+omega_mako <- omega_mako %>% dplyr::select(c(kode, Date.y, Time, localHour.y, x, y, sst, sst_sd, ssh, ssh_sd, eke, ild.5, n2, lunar, bathy, chloro))
+omega_blue <- omega_blue %>% dplyr::select(c(kode, Date.y, Time, localHour.y, x, y, sst, sst_sd, ssh, ssh_sd, eke, ild.5, n2, lunar, bathy, chloro))
+
+omega_combo <- rbind(omega_mako, omega_blue)
+
+omega_combo <- omega_combo %>% separate(kode, into = c("Date", "ptt"), sep = "([ ])")
+omega_combo <- omega_combo %>% mutate(
+  kode = paste(Date, ptt, sep = "_")
+)
+omega_combo <- omega_combo %>% dplyr::select(-c(Date, ptt))
+
+omega_combo <- inner_join(omega_combo, tad_combo, by = c("kode"))
+omega_combo$cluster <- as.factor(omega_combo$cluster)
+omega_combo$ptt <- as.factor(omega_combo$ptt)
+
+omega_combo <- omega_combo %>% separate(Date.y, into = c("Year", "Month", "Day"), sep = "([-])")
+
+```
+
+# Map of Cluster Locations
+Across the North Atlantic study area, where did each cluster occur along the track of each individual shark?
+```{r cluster maps}
+combo_track <- rbind(mako_tracks, blue_tracks)
+combo_track <- inner_join(combo_track, clust_stamp2, by = c("kode"))
+combo_track$cluster <- factor(combo_track$cluster)
+combo_track$species <- factor(combo_track$species.x)
+
+mako_tracks <- inner_join(mako_tracks, clust_stamp)
+blue_tracks <- inner_join(blue_tracks, clust_stamp)
+
+# bathymetry raster layer
+b <- c("/Volumes/A_DRIVE/bathy/bathy.nc")
+b <- raster(r)
+b <- raster::aggregate(r, fact = 5)
+b_df <- as.data.frame(r, xy = TRUE)
+b_df <- r_df %>% filter(Elevation.relative.to.sea.level < 0)
+
+# bathymetry
+ggplot() +
+  geom_raster(data = filter(r_df, Elevation.relative.to.sea.level < 0), aes(x = x, y = y, fill = Elevation.relative.to.sea.level)) +
+  geom_sf(data = world, color = "black") +
+  coord_sf(xlim = c(-80, -10), ylim = c(7,47), expand = FALSE) +
+  geom_point(data = combo_track, aes(longitude, latitude, color = species)) +
+  facet_wrap(~species) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# cluster 1
+ggplot() +
+  geom_raster(data = filter(r_df, Elevation.relative.to.sea.level < 0), aes(x = x, y = y, fill = Elevation.relative.to.sea.level)) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  geom_sf(data = world, color = "black") +
+  coord_sf(xlim = c(-80, -10), ylim = c(7,47), expand = FALSE) +
+  geom_point(data = filter(combo_track, cluster == 1), aes(longitude, latitude, color = species.x)) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  ggtitle("Cluster 1") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# cluster 2
+ggplot() +
+  geom_raster(data = filter(r_df, Elevation.relative.to.sea.level < 0), aes(x = x, y = y, fill = Elevation.relative.to.sea.level)) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  geom_sf(data = world, color = "black") +
+  coord_sf(xlim = c(-80, -10), ylim = c(7,47), expand = FALSE) +
+  geom_point(data = filter(combo_track, cluster == 2), aes(longitude, latitude, color = species.x)) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  ggtitle("Cluster 2") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# cluster 3
+ggplot() +
+  geom_raster(data = filter(r_df, Elevation.relative.to.sea.level < 0), aes(x = x, y = y, fill = Elevation.relative.to.sea.level)) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  geom_sf(data = world, color = "black") +
+  coord_sf(xlim = c(-80, -10), ylim = c(7,47), expand = FALSE) +
+  geom_point(data = filter(combo_track, cluster == 3), aes(longitude, latitude, color = species.x)) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  ggtitle("Cluster 3") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# cluster 4
+ggplot() +
+  geom_raster(data = filter(r_df, Elevation.relative.to.sea.level < 0), aes(x = x, y = y, fill = Elevation.relative.to.sea.level)) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  geom_sf(data = world, color = "black") +
+  coord_sf(xlim = c(-80, -10), ylim = c(7,47), expand = FALSE) +
+  geom_point(data = filter(combo_track, cluster == 4), aes(longitude, latitude, color = species.x)) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  ggtitle("Cluster 4") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# cluster 5
+ggplot() +
+  geom_raster(data = filter(r_df, Elevation.relative.to.sea.level < 0), aes(x = x, y = y, fill = Elevation.relative.to.sea.level)) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  geom_sf(data = world, color = "black") +
+  coord_sf(xlim = c(-80, -10), ylim = c(7,47), expand = FALSE) +
+  geom_point(data = filter(combo_track, cluster == 5), aes(longitude, latitude, color = species.x)) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  ggtitle("Cluster 5") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+# Dendrograms
+Create a dendrogram showing the separation of the different heirarchical clusters
+Note: PRUNED DENDROGRAM CODE DOES NOT SEEM TO BE FUNCTIONING PROPERLY IN ITS CURRENT STATE
+```{r dendrogram}
+plot(Clust2)
+# trying to figure out what parts of the dendrogram corespond to which clusters
+cluster_dendro <- as.dendrogram(Clust2)
+colors_to_use <- as.numeric(Ctad2$cluster)
+colors_to_use <- colors_to_use[order.dendrogram(cluster_dendro)]
+labels_colors(cluster_dendro) <- colors_to_use
+labels_colors(cluster_dendro)
+plot(cluster_dendro)
+
+# make a list of ggplot colors
+hue_pal()(10)
+show_col(hue_pal()(10))
+ggplot_colors <- data.frame(
+  numb = c(1,2,3,4,5,6,7,8,9,10),
+  code = c("#F8766D", "#D89000", "#A3A500", "#39B600", "#00BF7D", "#00BFC4", "#00B0F6", "#9590FF", "#E76BF3", "#FF62BC")
+)
+
+# finally, make a pretty colored dendrogram
+color_dendro <- color_branches(cluster_dendro, clusters = colors_to_use, col = c("#00B0F6", "#00BFC4", "#FF62BC", "#E76BF3", "#F8766D", "#D89000", "#9590FF", "#39B600", "#A3A500", "#00BF7D"))
+
+color_dendro <- color_branches(cluster_dendro, clusters = colors_to_use, col = c("black", "black", "black", "black", "#F8766D", "#F8766D", "#00BFC4", "#00BFC4", "#00BFC4", "#00BFC4")) # general patterns
+plot(color_dendro)
+```
+
+# Heatmaps ## NEEDS UPDATING ##
+Create heatmaps of vertical distribution within each cluster. Here, each column represents a destinct tracking day with different depth bins extending down into the water column along the y-axis. The color of each box represents the proportion of time that the animal spent in that depth bin on that particular day. 
+``` {r cluster heatmaps}
+# makos
+combo_heatmap <- tad_combo %>% dplyr::select(-c(Date, ptt, owner, kode, species, cluster))
+combo_heatmap$Row <- (1:nrow(combo_heatmap))
+
+pived_stamp <- data.frame(
+  species = rep(tad_combo$species, each = 8),
+  cluster = rep(tad_combo$cluster, each = 8)
+)
+
+pived <- combo_heatmap %>% 
+  pivot_longer( -Row, names_to = "bin", values_to = "count")
+
+pived <- cbind(pived, pived_stamp)
+
+pived$bin <- factor(pived$bin, levels = c("bin1", "bin2", "bin3", "bin4", "bin5", "bin6", "bin7", "bin8"), ordered = TRUE)
+pived$bin <- as.numeric(pived$bin)
+pived$Row <- factor(pived$Row, levels = c(unique(combo_heatmap$Row)), ordered = TRUE)
+
+# repeat for all 9 clusters and both species
+# MAKOS
+# C1
+ggplot(data = filter(pived, species == "I. oxyrinchus")) +
+  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==1), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C2
+ggplot(data = filter(pived, species == "I. oxyrinchus")) +
+  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==2), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C3
+ggplot(data = filter(pived, species == "I. oxyrinchus")) +
+  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==3), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+ # C4
+ggplot(data = filter(pived, species == "I. oxyrinchus")) +
+  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==4), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C5
+ggplot(data = filter(pived, species == "I. oxyrinchus")) +
+  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==5), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C6
+ggplot(data = filter(pived, species == "I. oxyrinchus")) +
+  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==6), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C7
+ggplot(data = filter(pived, species == "I. oxyrinchus")) +
+  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==7), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C8
+ggplot(data = filter(pived, species == "I. oxyrinchus")) +
+  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==8), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C9
+ggplot(data = filter(pived, species == "I. oxyrinchus")) +
+  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==9), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+
+# BLUES
+# C1
+ggplot(data = filter(pived, species == "P. glauca")) +
+  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==1), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C2
+ggplot(data = filter(pived, species == "P. glauca")) +
+  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==2), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C3
+ggplot(data = filter(pived, species == "P. glauca")) +
+  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==3), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C4
+ggplot(data = filter(pived, species == "P. glauca")) +
+  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==4), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C5
+ggplot(data = filter(pived, species == "P. glauca")) +
+  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==5), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C6
+ggplot(data = filter(pived, species == "P. glauca")) +
+  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==6), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C7
+ggplot(data = filter(pived, species == "P. glauca")) +
+  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==7), aes(x = Row, y = bin, fill = count), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
+  theme_dendro() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+```
+
+# Proportion time at depth accross daylight hours heatmaps
+This might work right out of the box with the series data_frame I made earlier...
+Note: MAKE SURE TO USE LOCAL TIME
+
+``` {r TAD daylight}
+combo_series <- rbind(mako_series, blue_series)
+combo_series$Local_Time <- as_hms(combo_series$Local_Time)
+cluster_series <- inner_join(combo_series, clust_stamp2, by = "kode")
+unique(combo_series$kode)
+
+# daily cluster kernal density heatmaps
+ggplot(data = filter(cluster_series, cluster == 1), aes(x = Local_Time, y = depth) ) +
+  stat_density_2d(aes(fill = ((..ndensity..))), geom = "raster", contour = FALSE) +
+  facet_wrap(~cluster) +
+  scale_fill_viridis(option = "magma") + 
+  labs(fill = "Density") +
+  scale_y_reverse(breaks = c(0, 500, 1000, 1500), labels = c("0", "500", "1000", "1500")) +
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  xlab("Time of Day") +
+  ylab("Depth(m)") +
+  theme_minimal()
+
+# daily cluster point maps
+ggplot(data = filter(cluster_series, cluster == 5)) +
+  geom_point(aes(x = Local_Time, y = depth, color = species.x), alpha = 0.01) +
+  facet_grid(cluster ~ species.x) + 
+  scale_y_reverse(limits = c(1000, 0), breaks = c(1000, 500, 0)) +
+  theme_classic() +
+  theme(legend.position = "bottom")
+```
+
+# Series Plots - Mass Production
+Generate plots of series data for all tracking days w/ more than 75% data coverage
+``` {r series assemly line}
+# update line 1481 and line 1505 with appropriate cluster number
+c1 <- cluster_series %>% filter(cluster == 5)
+series_dates <- unique(c1$Date) 
+
+for(i in 1:length(series_dates)) {
+  day <- c1 %>% filter(Date == series_dates[i])
+  sharks <- day %>% count(ptt)
+  sharks <- sharks %>% filter(n >= 260)
+  ptt_n <- c(sharks$ptt)
+  full_series <- data.frame()
+  for(i in 1:length(ptt_n)) {
+    tryCatch({
+    x <- day %>% filter(ptt == ptt_n[i])
+    full_series <- rbind(full_series, x)
+    rm(x)
+  }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+  }
+ if (nrow(full_series) != 0) {
+ ggplot() + 
+    geom_line(data = filter(full_series, species.x == "P.glauca"), aes(x = DateTime, y = depth), color = "#00BFC4") +
+    geom_line(data = filter(full_series, species.x == "I.oxyrinchus"), aes(x = DateTime, y = depth), color = "#F8766D") +
+    scale_y_reverse() +
+    facet_grid(ptt~.) +
+    theme_classic()
+  
+  ggsave(paste("~/Desktop/blues-makos/images/cluster_5/", full_series[1,1], ".png", sep = ""))
+ 
+  rm(day, sharks, ptt_n, full_series)
+ }
+  else {
+    rm(day, sharks, ptt_n, full_series)
+  }
+}
+
+```
+
+## EXTRACTING ENVIRONMENTAL DATA ##
+# Cam code
+Here's a modified example of some extraction code which Cam wrote for me a while back:
+```{r lucky mako 7}
+# adding the 7th mako to omega_combo
+# separate tad and track data
+
+m7 <- tad_mako %>% filter(ptt == 206771)
+m7 <- m7 %>% mutate(
+  kode = paste(Date, ptt, sep = "_")
+)
+
+## get the track and trim to unique DAYS (not unique date-times as that just introduces duplication into the loop below)
+etuff <- read_etuff(makos[7])
+track7 <- get_track(etuff)
+track7$dup <- track7$DateTime
+track7 <- track7 %>% separate(dup, into = c("Date", "Time"), sep = "([ ])")
+track7$ptt <- etuff$meta$ptt
+track7 <- track7 %>% mutate(
+  kode = paste(Date, ptt, sep = "_")
+)
+track7 <- track7 %>% dplyr::select(c("kode", "latitude", "longitude", "Date", "DateTime"))
+track7$day <- as.Date(track7$DateTime, tz='UTC')
+track7 <- track7[which(!duplicated(track7$day)),]
+# now stick them together
+m7 <- left_join(m7, track7)
+```
+
+``` {r HYCOM}
+# create a stamp with coordinates for each tracking day
+position.stmp <- combo_track %>% dplyr::select(latitude, longitude, kode)
+position.stmp <- position.stmp[which(!duplicated(position.stmp$kode)),] # remove duplicates in days w. more than one location
+# apply position data to high_res data frame
+high_res <- inner_join(high_res, position.stmp, by = c("kode"))
+# extract environmental files from HYCOM for each unique date
+## create an index of new columns where you want the environmental data to go. I happen to know this outputs 15 cols so I cheated...
+col_idx <- c((ncol(high_res) + 1):(ncol(high_res) + 16))
+
+t1 <- Sys.time()
+for (tt in 1:nrow(high_res)){
+  data <- unlist(facet_hycom(xpos = high_res$longitude[tt],
+                                        ypos = high_res$latitude[tt],
+                                        tpos = as.Date(high_res$Date[tt]), ## needs to be of class 'Date'
+                                        xlen = 0.25, ## these "errors" need to be approx this size to allow the calculations to run successfully
+                                        ylen = 0.25, 
+                                        varName = c('water_temp', 'water_u', 'water_v','surf_el','salinity')))
+  data <- as.data.frame(t(data))
+  high_res[tt,col_idx] <- data
+  rm(data)
+}
+
+t2 <- Sys.time()
+t2 - t1
+```
+
+```{r lucky mako 7: BATHYMETRY}
+# extracting Bathymetry data
+nc_data <- nc_open("/Volumes/A_DRIVE/bathy/northwest_atlantic.nc")
+
+lon <- ncvar_get(nc_data, "lon")
+lat <- ncvar_get(nc_data, "lat")
+
+depth.array <- ncvar_get(nc_data, "elevation")
+# find out what value is input for misssing data
+fillvalue <- ncatt_get(nc_data, "elevation", "_FillValue")
+# close the NETCDF file
+nc_close(nc_data) 
+# get model points for extraction from LiveOcean #
+lon_psat <- m7$longitude
+lat_psat <- m7$latitude
+
+extraction_points <- data.frame (
+  longitude = c(lon_psat),
+  latitude = c(lat_psat)
+)
+# transform the array into a raster layer
+r_brick <- raster(depth.array, xmn=min(lat), xmx=max(lat), ymn=min(lon), ymx=max(lon), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+# check orrientation
+plot(r_brick)
+# correct the orrientation of the raster brick
+r_brick <- flip(t(r_brick), direction='y')
+
+# extracting points from the brick
+bathy <- data.frame()
+
+for(i in 1:nrow(extraction_points)) {
+  point_series <- raster::extract(r_brick, extraction_points[i,], method='simple')
+  data <- data.frame(
+    point = c(i),
+    lat = extraction_points[i,2], 
+    lon = extraction_points[i,1],
+    depth = c(point_series)
+  )
+  
+  bathy <- rbind(bathy, data)
+  
+  rm(data)
+  print(i)
+}
+
+# cleanup and formatting
+bathy <- bathy %>% filter(!is.na(depth))
+
+m7 <- cbind(m7, bathy)
+m7 <- m7[,-c(34:36)]
+
+rm(r_brick) #cleanup
+```
+
+```{r CHLOROPHYLL}
+## Get existing chlorophyll data
+chloro.stmp <- omega_combo %>% dplyr::select(c("kode", "chloro"))
+blank <- left_join(high_res, chloro.stmp, by = c("kode"))
+blank <- filter(blank, is.na(chloro))
+
+## Get VGPM data for missing days
+source('~/Desktop/blues-makos/analyzePSAT/R/vgpm.load.r')
+library(raster)
+
+tVec <- c(seq.Date(as.Date('2015-10-01'), as.Date('2016-04-01'), by='month'),
+          seq.Date(as.Date('2016-09-01'), as.Date('2017-03-01'), by='month'),
+          seq.Date(as.Date('2017-11-01'), as.Date('2018-01-01'), by='month')
+)
+for (i in 1:length(tVec)){
+  doy <- lubridate::yday(tVec[i])
+  if (nchar(doy) == 1) doy <- paste('00', doy, sep='')
+  if (nchar(doy) == 2) doy <- paste('0', doy, sep='')
+  yrday <- paste(lubridate::year(tVec[i]), doy, sep='')
+  url <- paste('http://orca.science.oregonstate.edu/data/1x2/monthly/vgpm.r2018.m.chl.m.sst/xyz/vgpm.', yrday, '.all.xyz.gz', sep='')
+  filename <- paste('vgpm.', yrday, '.all.xyz.gz', sep='')
+  #repeat{
+  curl::curl_download(url, filename, quiet=FALSE)
+  
+  #  tryCatch({
+  #    err <- try(RNetCDF::open.nc(filename), silent = T)
+  #  }, error=function(e){print(paste('ERROR: Download of data at ', yrday, ' failed. Trying call to server again.', sep = ''))})
+  #  if(class(err) != 'try-error') break
+  #}
+  print(paste(i))
+}
+
+fileList <- list.files("~/Desktop/blues-makos/chloro/", full.names = TRUE)
+for (i in 1:length(fileList)){
+  system(paste('gunzip -k ', fileList[i], sep=''))
+}
+
+for (i in 1:17){
+  t1 <- Sys.time()
+  doy <- lubridate::yday(tVec[i])
+  if (nchar(doy) == 1) doy <- paste('00', doy, sep='')
+  if (nchar(doy) == 2) doy <- paste('0', doy, sep='')
+  yrday <- paste(lubridate::year(tVec[i]), doy, sep='')
+  # load vgpm and rasterize
+  vgpm <- vgpm.load(file=paste('~/Desktop/blues-makos/chloro/vgpm.', yrday, '.all.xyz', sep=''), w.lon = -180, e.lon = 180,
+                    n.lat = 90, s.lat = -90, raster = TRUE)
+  vgpm <- vgpm / 1000 # convert from mg to g C/ m^2 / d^1
+  #t2 <- Sys.time()
+  #print(paste(t2 - t1)) # print how long it took
+  crs_geo <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"
+  crs(vgpm) <- crs_geo
+  t3 <- Sys.time()
+  vgpm_proj <- projectRaster(vgpm, crs=CRS("+init=epsg:3832"))
+  
+  #plot(vgpm_proj)
+  
+  e <- extent(250, 330, 0, 50)
+  e <- as(e, 'SpatialPolygons')
+  crs(e) <- crs_geo
+  e <- spTransform(e, CRS("+init=epsg:3832"))
+  
+  vgpm_new <- mask(vgpm_proj, e)
+  vgpm_new <- projectRaster(vgpm_new, crs=crs_geo)
+  
+  writeRaster(vgpm_new, file=paste('/Volumes/A_DRIVE/Chlorophyll/vgpm.', yrday, '.all.grd', sep=''), overwrite=T)
+  rm(vgpm); rm(vgpm_new); rm(vgpm_proj); gc()
+  t4 <- Sys.time()
+  
+  print(paste(i, 'took', round(t4 - t1), 'secs'))
+}
+#plot(vgpm); world(add=T); plot(e, add=T)
+
+fileList <- list.files("/Volumes/A_DRIVE/Chlorophyll/", full.names = TRUE)
+fileList <- fileList[grep('.gri', fileList)]
+
+# extract monthly chlorophyll values for each track location
+tVec <- c(seq.Date(as.Date('2015-10-01'), as.Date('2016-04-01'), by='month'),
+          seq.Date(as.Date('2016-09-01'), as.Date('2017-03-01'), by='month'),
+          seq.Date(as.Date('2017-11-01'), as.Date('2018-02-01'), by='month')
+)
+
+data <- data.frame()
+
+for(i in 1:17) {
+  doy <- lubridate::yday(tVec[i])
+  if (nchar(doy) == 1) doy <- paste('00', doy, sep='')
+  if (nchar(doy) == 2) doy <- paste('0', doy, sep='')
+  yrday <- paste(lubridate::year(tVec[i]), doy, sep='')
+  file <- fileList[grep(yrday, fileList)]
+  c_brick <- raster(file)
+  sub1 <- blank[blank$Date >= tVec[i] & blank$Date <= tVec[i+1],]
+  extraction_points <- data.frame(
+    x = sub1$longitude,
+    y = sub1$latitude
+  )
+  for(tt in 1:nrow(extraction_points)) {
+    point_series <- raster::extract(c_brick, extraction_points[tt,], method='simple')
+    sub1[tt,43] <- point_series
+  }
+  
+  data <- rbind(data, sub1)
+  print(i)
+}
+
+
+
+# transform the array into a raster layer
+r_brick <- raster(depth.array, xmn=min(lat), xmx=max(lat), ymn=min(lon), ymx=max(lon), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+# check orrientation
+plot(r_brick)
+# correct the orrientation of the raster brick
+r_brick <- flip(t(r_brick), direction='y')
+
+# extracting points from the brick
+bathy <- data.frame()
+
+for(i in 1:nrow(extraction_points)) {
+  point_series <- raster::extract(r_brick, extraction_points[i,], method='simple')
+  data <- data.frame(
+    point = c(i),
+    lat = extraction_points[i,2], 
+    lon = extraction_points[i,1],
+    depth = c(point_series)
+  )
+  
+  bathy <- rbind(bathy, data)
+  
+  rm(data)
+  print(i)
+}
+
+# cleanup and formatting
+bathy <- bathy %>% filter(!is.na(depth))
+
+m7 <- cbind(m7, bathy)
+m7 <- m7[,-c(34:36)]
+
+rm(r_brick) #cleanup
+
+
+```
+
+# Downloading data from HYCOM
+``` {r HYCOM}
+sp.lim <- list(lonmin = -79, lonmax = -10, latmin = 7, latmax = 48)
+
+get.env(uniqueDates = as.POSIXct("2015-11-24"), filename = "hycom", type = "hycom", spatLim = sp.lim, save.dir = '~/Desktop/')
+```
+
+# Extracting Temperature at Depth 
+```{r T200}
+# MAKOS
+# STEP 1: Reclaim temperature at depth values from PSAT tags
+mako_mod <- omega_combo %>% filter(species == "I. oxyrinchus")
+
+z <- data.frame()
+
+for (i in 1:length(makos)) {
+  etuff <- read_etuff(makos[i])
+  temp <- get_pdt(etuff)
+  temp$ptt <- etuff$meta$ptt
+  #temp <- temp %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
+  temp$Date <- as.character(temp$Date)
+  #temp <- temp[,-c(2)]
+  temp <- temp %>% filter(PdtDepth == 200)
+  temp <- temp %>% transmute(
+    kode = paste(Date, ptt, sep = "_"),
+    "Temp200" = ((PdtTempMax + PdtTempMin)/2) 
+  )
+  alt <- inner_join(mako_mod, temp, by = "kode")
+  z <- rbind(z, alt)
+  print(i)
+  rm(etuff, temp, alt)
+}
+
+## Temperature at 200 meters extracted for 34 days
+alt <- left_join(mako_mod, z)
+
+# find days that are still missing temperature data
+temp <- alt %>% filter(is.na(Temp200))
+
+# STEP 2: Extract missing values from NetCDF files
+hList <- list.files(path = "/Volumes/A_DRIVE/HYCOM/",full.names = T)
+
+mdate <- unique(mako_mod$Date.y) 
+
+mtemp <- data.frame()
+
+for (i in 1:length(mdate)) {
+  r <- hList[grep(paste(mdate[i]), hList)]
+  sub <- temp %>% filter(Date.y == mdate[i])
+  r <- raster(r, band = 23)
+  extract_pts <- sub[,4:5]
+  ext <- raster::extract(r, extract_pts, method = "simple")
+  sub$Temp200 <- ext
+  mtemp <- rbind(mtemp, sub)
+  print(i)
+  rm(r,sub,extract_pts,ext)
+}
+# ~251 temperature values extracted from this code
+
+# separate the blanks
+blanks <- mtemp %>% filter(is.na(Temp200))
+# separate filled values
+mtemp <-  mtemp %>% filter(!is.na(Temp200))
+
+# values are still missing because the longitude coorinate is in the wrong format - this loop will correct it
+for (i in 1:nrow(blanks)) {
+  r <- hList[grep(paste(blanks[i,1]), hList)]
+  sub <- blanks[i,]
+  r <- raster(r, band = 23)
+  extract_pts <- sub[,4:5]
+  extract_pts$x <- extract_pts$x + 360 # correct a different format in longitude
+  ext <- raster::extract(r, extract_pts, method = "simple")
+  sub$Temp200 <- ext
+  mtemp <- rbind(mtemp, sub)
+  print(i)
+  rm(r,sub,extract_pts,ext)
+}
+
+rm(blanks)
+
+# get rid of NA's that have now been filled
+alt <- alt %>% filter(!is.na(Temp200))
+
+# combine observed and modelled data
+mtemp <- rbind(alt, mtemp)
+mako_mod <- mtemp
+rm(mtemp)
+
+# BLUE SHARKS
+## Extracting data from Depth-Temperature Profiles
+blue_mod <- omega_combo %>% filter(species == "P. glauca")
+
+z <- data.frame()
+
+for (i in 1:length(blues)) {
+  etuff <- read_etuff(blues[i])
+  temp_blue <- get_pdt(etuff)
+  temp_blue$ptt <- etuff$meta$ptt
+  #temp_blue <- temp_blue %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
+  temp_blue$Date <- as.character(temp_blue$Date)
+  #temp_blue <- temp_blue[,-c(2)]
+  temp_blue <- temp_blue %>% filter(PdtDepth == 200)
+  temp_blue <- temp_blue %>% transmute(
+    kode = paste(Date, ptt, sep = "_"),
+    "Temp200" = ((PdtTempMax + PdtTempMin)/2) 
+  )
+  alt <- inner_join(blue_mod, temp_blue, by = "kode")
+  z <- rbind(z, alt)
+  print(i)
+  rm(etuff, temp, alt)
+}
+# Produces 100 observed values for Temp 200
+
+alt_blue <- left_join(blue_mod, z)
+
+temp_blue <- alt_blue %>% filter(is.na(Temp200))
+
+# Using HYCOM data to fill in the blanks
+
+bdate <- unique(blue_mod$Date.y) 
+
+btemp <- data.frame()
+
+for (i in 1:length(bdate)) {
+  r <- hList[grep(paste(bdate[i]), hList)]
+  sub <- temp_blue %>% filter(Date.y == bdate[i])
+  r <- raster(r, band = 23)
+  extract_pts <- sub[,4:5]
+  extract_pts$x <- extract_pts$x + 360
+  ext <- raster::extract(r, extract_pts, method = "simple")
+  sub$Temp200 <- ext
+  btemp <- rbind(btemp, sub)
+  print(i)
+  rm(r,sub,extract_pts,ext)
+}
+# all remaining NAs occur in water more shallow than 200 meters
+
+# get rid of NAs which have now been filled
+alt_blue <- alt_blue %>% filter(!is.na(Temp200))
+btemp <- rbind(alt_blue, btemp)
+blue_mod <- btemp
+rm(btemp)
+```
+
+## MULTINOMIAL LOGISTIC REGRESSION ANALYSIS ##
+# Cross correlation analysis
+Determine if any of your environmental variables are colinear
+```{r cortest}
+combo_mod <- rbind(mako_mod, blue_mod)
+combo_mod <- combo_mod %>% filter(cluster != 8 & cluster != 9)
+c.cor <- cor(combo_mod[,c(4:15,30)], use = "complete.obs")
+```
+
+## FIXED EFFECT MODEL 
+# FORWARD SELECTION 1
+Identify the best single predictive variable for cluster placement 
+``` {r FS1}
+combo_mod$clus2 <- relevel(as.factor(combo_mod$cluster), ref = 3)
+combo_mod$species <- relevel(as.factor(combo_mod$species), ref = "P. glauca")
+combo_mod$ptt <- factor(combo_mod$ptt)
+#combo_mod$ptt <- relevel(as.factor(combo_mod$ptt), ref = "106754")
+
+full <- combo_mod %>% filter(lunar >= 0.75)
+full$lunar <- 2
+mid <- combo_mod %>% filter(lunar < 0.75)
+mid$lunar <- 1
+combo_mod <- rbind(full, mid)
+combo_mod$lunar <- relevel(as.factor(combo_mod$lunar), ref = 1)
+rm(full, mid)
+
+combo_mod <- combo_mod %>% separate(Date, into = c("Year", "Month", "Day"), sep = "([-])")
+greg <- combo_mod %>% filter(Year == 2008 | Year == 2009)
+greg$Year <- 1
+cam <- combo_mod %>% filter(Year != 2008 & Year != 2009)
+cam$Year <- 2
+combo_mod <- rbind(cam, greg)
+rm(cam, greg)
+combo_mod$Year <- relevel(as.factor(combo_mod$Year), ref = "2")
+combo_mod$Month <- relevel(as.factor(combo_mod$Month), ref = "12")
+
+
+mod01 <- multinom(clus2 ~ sst, data = combo_mod) # AIC: 3740.653
+mod02 <- multinom(clus2 ~ sst_sd, data = combo_mod) # AIC: 3921.486
+mod03 <- multinom(clus2 ~ ssh, data = combo_mod) # AIC: 3817.16
+mod04 <- multinom(clus2 ~ ssh_sd, data = combo_mod) # AIC: 4224.496 
+mod05 <- multinom(clus2 ~ eke, data = combo_mod) # AIC: 4242.071 
+mod06 <- multinom(clus2 ~ ild.5, data = combo_mod) # AIC: 4235.485
+mod07 <- multinom(clus2 ~ n2, data = combo_mod) # AIC: 4207.371
+mod08 <- multinom(clus2 ~ bathy, data = combo_mod) # AIC: 4117.645
+mod09 <- multinom(clus2 ~ chloro, data = combo_mod) # AIC: 4014.514
+mod10 <- multinom(clus2 ~ lunar, data = combo_mod) # AIC: 4236.469 
+mod11 <- multinom(clus2 ~ species, data = combo_mod) # AIC: 3819.802
+mod12 <- multinom(clus2 ~ x, data = combo_mod) # AIC: 3986.341
+mod13 <- multinom(clus2 ~ y, data = combo_mod) # AIC: 3954.994
+mod14 <- multinom(clus2 ~ Year, data = combo_mod) # AIC: 3607.569 OR 3807.989 for greg vs. cam
+mod15 <- multinom(clus2 ~ Month, data = combo_mod) # AIC: 4139.339
+
+vec_AIC <- AIC(mod01, mod02, mod03, mod04, mod05, mod06, mod07, mod08, mod09, mod10, mod11, mod12, mod13, mod14, mod15)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Chlorophyll is best predictor
+rm(mod01, mod02, mod03, mod04, mod05, mod06, mod07, mod08, mod10, mod11, mod13, mod14, mod15) # cleanup
+# z-test
+z <- summary(mod09)$coefficients/summary(mod09)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+```
+
+# FORWARD SELECTION 2
+Identify the second best predictive variable for cluster placement
+``` {r FS2}
+mod1.01 <- multinom(clus2 ~ chloro + sst, data = combo_mod)
+mod1.02 <- multinom(clus2 ~ chloro + sst_sd, data = combo_mod)
+mod1.03 <- multinom(clus2 ~ chloro + ssh_sd, data = combo_mod)
+mod1.04 <- multinom(clus2 ~ chloro + eke, data = combo_mod)
+mod1.05 <- multinom(clus2 ~ chloro + ild.5, data = combo_mod)
+mod1.06 <- multinom(clus2 ~ chloro + n2, data = combo_mod)
+mod1.07 <- multinom(clus2 ~ chloro + lunar, data = combo_mod)
+mod1.08 <- multinom(clus2 ~ chloro + species, data = combo_mod)
+mod1.09 <- multinom(clus2 ~ chloro + x, data = combo_mod)
+mod1.10 <- multinom(clus2 ~ chloro + y, data = combo_mod)
+mod1.11 <- multinom(clus2 ~ chloro + Year, data = combo_mod)
+mod1.12 <- multinom(clus2 ~ chloro + Month, data = combo_mod)
+
+vec_AIC <- AIC(mod1.01, mod1.02, mod1.03, mod1.04, mod1.05, mod1.06, mod1.07, mod1.08, mod1.09, mod1.10, mod1.11, mod1.12)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Year is best predictor
+rm(mod1.01, mod1.02, mod1.03, mod1.04, mod1.05, mod1.06, mod1.07, mod1.08, mod1.10, mod1.12) # cleanup
+
+# z-test
+z <- summary(mod1.11)$coefficients/summary(mod1.11)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+```
+
+# FORWARD SELECTION 3
+Identify the third best predictive variable for cluster placement
+``` {r FS3}
+mod1.1.01 <- multinom(clus2 ~ chloro + Year + sst, data = combo_mod)
+mod1.1.02 <- multinom(clus2 ~ chloro + Year + sst_sd, data = combo_mod)
+mod1.1.03 <- multinom(clus2 ~ chloro + Year + ssh_sd, data = combo_mod)
+mod1.1.04 <- multinom(clus2 ~ chloro + Year + eke, data = combo_mod)
+mod1.1.05 <- multinom(clus2 ~ chloro + Year + ild.5, data = combo_mod)
+mod1.1.06 <- multinom(clus2 ~ chloro + Year + n2, data = combo_mod)
+mod1.1.07 <- multinom(clus2 ~ chloro + Year + lunar, data = combo_mod)
+mod1.1.08 <- multinom(clus2 ~ chloro + Year + species, data = combo_mod)
+mod1.1.09 <- multinom(clus2 ~ chloro + Year + x, data = combo_mod)
+mod1.1.10 <- multinom(clus2 ~ chloro + Year + y, data = combo_mod)
+mod1.1.11 <- multinom(clus2 ~ chloro + Year + Month, data = combo_mod)
+
+vec_AIC <- AIC(mod1.1.01, mod1.1.02, mod1.1.03, mod1.1.04, mod1.1.05, mod1.1.06, mod1.1.07, mod1.1.08, mod1.1.09, mod1.1.10, mod1.1.11)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Species is the next best predictor
+rm(mod1.1.01, mod1.1.02, mod1.1.03, mod1.1.04, mod1.1.05, mod1.1.06, mod1.1.07, mod1.1.09, mod1.1.10, mod1.1.11) # cleanup
+
+# z-test
+z <- summary(mod1.1.08)$coefficients/summary(mod1.1.08)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+```
+
+# FORWARD SELECTION 4
+Identify the fourth best predictive variable for cluster placement
+```{r FS4}
+mod1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + sst, data = combo_mod)
+mod1.1.1.02 <- multinom(clus2 ~ chloro + Year + species + sst_sd, data = combo_mod)
+mod1.1.1.03 <- multinom(clus2 ~ chloro + Year + species + ssh_sd, data = combo_mod)
+mod1.1.1.04 <- multinom(clus2 ~ chloro + Year + species + eke, data = combo_mod)
+mod1.1.1.05 <- multinom(clus2 ~ chloro + Year + species + ild.5, data = combo_mod)
+mod1.1.1.06 <- multinom(clus2 ~ chloro + Year + species + n2, data = combo_mod)
+mod1.1.1.07 <- multinom(clus2 ~ chloro + Year + species + lunar, data = combo_mod)
+mod1.1.1.08 <- multinom(clus2 ~ chloro + Year + species + x, data = combo_mod)
+mod1.1.1.09 <- multinom(clus2 ~ chloro + Year + species + y, data = combo_mod)
+mod1.1.1.10 <- multinom(clus2 ~ chloro + Year + species + Month, data = combo_mod)
+
+vec_AIC <- AIC(mod1.1.08, mod1.1.1.01, mod1.1.1.02, mod1.1.1.03, mod1.1.1.04, mod1.1.1.05, mod1.1.1.06, mod1.1.1.07, mod1.1.1.08, mod1.1.1.09, mod1.1.1.10)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Latitude is best
+rm(mod1.1.1.01, mod1.1.1.02, mod1.1.1.03, mod1.1.1.04, mod1.1.1.05, mod1.1.1.06, mod1.1.1.07, mod1.1.1.08, mod1.1.1.10)
+
+# z-test
+z <- summary(mod1.1.1.09)$coefficients/summary(mod1.1.1.09)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+```
+
+# FORWARD SELECTION 5
+Identify the fifth best predictive variable for cluster placement
+```{r FS5}
+mod1.1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + y + sst_sd, data = combo_mod) 
+mod1.1.1.1.02 <- multinom(clus2 ~ chloro + Year + species + y + ssh_sd, data = combo_mod)
+mod1.1.1.1.03 <- multinom(clus2 ~ chloro + Year + species + y + eke, data = combo_mod)
+mod1.1.1.1.04 <- multinom(clus2 ~ chloro + Year + species + y + ild.5, data = combo_mod)
+mod1.1.1.1.05 <- multinom(clus2 ~ chloro + Year + species + y + n2, data = combo_mod)
+mod1.1.1.1.06 <- multinom(clus2 ~ chloro + Year + species + y + lunar, data = combo_mod)
+mod1.1.1.1.07 <- multinom(clus2 ~ chloro + Year + species + y + x, data = combo_mod)
+mod1.1.1.1.08 <- multinom(clus2 ~ chloro + Year + species + y + Month, data = combo_mod)
+  
+vec_AIC <- AIC(mod1.1.1.09, mod1.1.1.1.01, mod1.1.1.1.02, mod1.1.1.1.03, mod1.1.1.1.04, mod1.1.1.1.05, mod1.1.1.1.06, mod1.1.1.1.07, mod1.1.1.1.08)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# longitude is best
+rm(mod1.1.1.1.01, mod1.1.1.1.02, mod1.1.1.1.03, mod1.1.1.1.04, mod1.1.1.1.05, mod1.1.1.1.06, mod1.1.1.1.08)
+
+# z-test
+z <- summary(mod1.1.1.1.07)$coefficients/summary(mod1.1.1.1.07)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+```
+
+# FORWARD SELECTION 6
+Identify the sixth best predictive variable for cluster placement
+``` {r FS6}
+mod1.1.1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + y + x + sst_sd, data = combo_mod)
+mod1.1.1.1.1.02 <- multinom(clus2 ~ chloro + Year + species + y + x + ssh_sd, data = combo_mod)
+mod1.1.1.1.1.03 <- multinom(clus2 ~ chloro + Year + species + y + x + eke, data = combo_mod)
+mod1.1.1.1.1.04 <- multinom(clus2 ~ chloro + Year + species + y + x + ild.5, data = combo_mod)
+mod1.1.1.1.1.05 <- multinom(clus2 ~ chloro + Year + species + y + x + n2, data = combo_mod)
+mod1.1.1.1.1.06 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar, data = combo_mod)
+mod1.1.1.1.1.07 <- multinom(clus2 ~ chloro + Year + species + y + x + Month, data = combo_mod)
+
+vec_AIC <- AIC(mod1.1.1.1.07, mod1.1.1.1.1.01, mod1.1.1.1.1.02, mod1.1.1.1.1.03, mod1.1.1.1.1.04, mod1.1.1.1.1.05, mod1.1.1.1.1.06, mod1.1.1.1.1.07)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Lunar illumination is the next best predictor
+rm(mod1.1.1.1.1.01, mod1.1.1.1.1.02, mod1.1.1.1.1.03, mod1.1.1.1.1.04, mod1.1.1.1.1.05, mod1.1.1.1.1.07)
+
+z <- summary(mod1.1.1.1.1.06)$coefficients/summary(mod1.1.1.1.1.06)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+```
+
+# FORWARD SELECTION 7
+Identify the seventh best predictive variable for cluster placement
+``` {r FS7}
+mod1.1.1.1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + sst_sd, data = combo_mod)
+mod1.1.1.1.1.1.02 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + ssh_sd, data = combo_mod)
+mod1.1.1.1.1.1.03 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + eke, data = combo_mod)
+mod1.1.1.1.1.1.04 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + ild.5, data = combo_mod)
+mod1.1.1.1.1.1.05 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2, data = combo_mod)
+
+vec_AIC <- AIC(mod1.1.1.1.1.06, mod1.1.1.1.1.1.01, mod1.1.1.1.1.1.02, mod1.1.1.1.1.1.03, mod1.1.1.1.1.1.04, mod1.1.1.1.1.1.05)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# n2 is the next best predictor
+rm(mod1.1.1.1.1.1.01, mod1.1.1.1.1.1.02, mod1.1.1.1.1.1.03, mod1.1.1.1.1.1.04)
+
+# z-test
+z <- summary(mod1.1.1.1.1.1.05)$coefficients/summary(mod1.1.1.1.1.1.05)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+```
+
+# FORWARD SELECTION 8
+Identify the eighth best predictive variable for cluster placement
+``` {r FS8}
+mod1.1.1.1.1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd, data = combo_mod)
+mod1.1.1.1.1.1.1.02 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + ssh_sd, data = combo_mod)
+mod1.1.1.1.1.1.1.03 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + eke, data = combo_mod)
+
+vec_AIC <- AIC(mod1.1.1.1.1.1.05, mod1.1.1.1.1.1.1.01, mod1.1.1.1.1.1.1.02, mod1.1.1.1.1.1.1.03)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# sea-surface temperature standard deviation is the next best predictor
+rm(mod1.1.1.1.1.1.1.02, mod1.1.1.1.1.1.1.03)
+
+# z-test
+z <- summary(mod1.1.1.1.1.1.1.01)$coefficients/summary(mod1.1.1.1.1.1.1.01)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+```
+
+# FORWARD SELECTION 9
+Identify the ninth best predictive variable for cluster placement
+``` {r FS9}
+mod1.1.1.1.1.1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + ssh_sd, data = combo_mod)
+mod1.1.1.1.1.1.1.1.02 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke, data = combo_mod)
+
+vec_AIC <- AIC(mod1.1.1.1.1.1.1.01, mod1.1.1.1.1.1.1.1.01, mod1.1.1.1.1.1.1.1.02)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# eke is the next best predictor
+rm(mod1.1.1.1.1.1.1.1.01)
+
+# z-test
+z <- summary(mod1.1.1.1.1.1.1.1.02)$coefficients/summary(mod1.1.1.1.1.1.1.1.02)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+```
+
+# FORWARD SELECTION 10
+Identify the tenth best predictive variable for cluster placement
+``` {r FS10}
+mod1.1.1.1.1.1.1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + ssh_sd, data = combo_mod)
+
+vec_AIC <- AIC(mod1.1.1.1.1.1.1.1.02, mod1.1.1.1.1.1.1.1.1.01)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+
+# the previous model was better
+```
+
+## Including Interaction Terms
+Test the interactions between model variables, and their influence on the predictive capacity of the model 
+```{r Interactions}
+# 1: chloro:Year
+mod0.1 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:Year, data = combo_mod)
+vec_AIC <- AIC(mod1.1.1.1.1.1.1.1.02, mod0.1)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this interaction made the model worse
+
+# 2: chloro:species
+mod0.1 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species, data = combo_mod)
+vec_AIC <- AIC(mod1.1.1.1.1.1.1.1.02, mod0.1)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# This made the model better
+z <- summary(mod0.1)$coefficients/summary(mod0.1)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+
+# 3: chloro:y
+mod0.2 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y, data = combo_mod)
+vec_AIC <- AIC(mod0.1, mod0.2)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# This made the model better
+z <- summary(mod0.2)$coefficients/summary(mod0.2)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+
+# 4: chloro:x
+mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + chloro:x, data = combo_mod)
+vec_AIC <- AIC(mod0.2, mod0.3)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+# 5: chloro:lunar
+mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + chloro:lunar, data = combo_mod)
+vec_AIC <- AIC(mod0.2, mod0.3)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# 50/50 split - go for parsimony
+
+# 6: chloro:n2
+mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + chloro:n2, data = combo_mod)
+vec_AIC <- AIC(mod0.2, mod0.3)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+# 7: chloro:sst_sd
+mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + chloro:sst_sd, data = combo_mod)
+vec_AIC <- AIC(mod0.2, mod0.3)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+# 8: chloro:eke
+mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + chloro:eke, data = combo_mod)
+vec_AIC <- AIC(mod0.2, mod0.3)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+# 9: Year:species
+mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:species, data = combo_mod)
+vec_AIC <- AIC(mod0.2, mod0.3)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# 50/50 split
+
+# 10: Year:y
+mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:y, data = combo_mod)
+vec_AIC <- AIC(mod0.2, mod0.3)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# 50/50 split
+
+# 11: Year:x
+mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x, data = combo_mod)
+vec_AIC <- AIC(mod0.2, mod0.3)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model better
+z <- summary(mod0.3)$coefficients/summary(mod0.3)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+
+# 12: Year:lunar
+mod0.4 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar, data = combo_mod)
+vec_AIC <- AIC(mod0.3, mod0.4)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+# 13: Year:n2
+mod0.4 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:n2, data = combo_mod)
+vec_AIC <- AIC(mod0.3, mod0.4)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+# 13.5: Year:sst_sd
+mod0.4 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:sst_sd, data = combo_mod)
+vec_AIC <- AIC(mod0.3, mod0.4)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+# 14: Year:eke
+mod0.4 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:eke, data = combo_mod)
+vec_AIC <- AIC(mod0.3, mod0.4)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+# 15: y:x
+mod0.4 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x, data = combo_mod)
+vec_AIC <- AIC(mod0.3, mod0.4)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model better
+z <- summary(mod0.4)$coefficients/summary(mod0.4)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+# all terms still statistically significant
+
+#16: y:lunar
+mod0.5 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + y:lunar, data = combo_mod)
+vec_AIC <- AIC(mod0.4, mod0.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+# 17: y:n2
+mod0.5 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + y:n2, data = combo_mod)
+vec_AIC <- AIC(mod0.4, mod0.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# 50/50 split
+
+#18: y:sst_sd
+mod0.5 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + y:sst_sd, data = combo_mod)
+vec_AIC <- AIC(mod0.4, mod0.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+#19: y:eke
+mod0.5 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + y:eke, data = combo_mod)
+vec_AIC <- AIC(mod0.4, mod0.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this made the model worse
+
+# 20: x:lunar
+mod0.5 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:lunar, data = combo_mod)
+vec_AIC <- AIC(mod0.4, mod0.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+#21: x:n2
+mod0.5 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2, data = combo_mod)
+vec_AIC <- AIC(mod0.4, mod0.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model better
+z <- summary(mod0.5)$coefficients/summary(mod0.5)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+# all terms still significant
+
+#22: x:sst_sd
+mod0.6 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + x:sst_sd, data = combo_mod)
+vec_AIC <- AIC(mod0.5, mod0.6)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+#23: x:eke
+mod0.6 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + x:eke, data = combo_mod)
+vec_AIC <- AIC(mod0.5, mod0.6)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+# 24: lunar:n2
+mod0.6 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:n2, data = combo_mod)
+vec_AIC <- AIC(mod0.5, mod0.6)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+# 25: lunar:sst_sd
+mod0.6 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:sst_sd, data = combo_mod)
+vec_AIC <- AIC(mod0.5, mod0.6)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+# 26: lunar:eke
+mod0.6 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke, data = combo_mod)
+vec_AIC <- AIC(mod0.5, mod0.6)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model better
+z <- summary(mod0.6)$coefficients/summary(mod0.6)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+# all terms still significant
+
+# 27: n2:sst_sd
+mod0.7 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + n2:sst_sd, data = combo_mod)
+vec_AIC <- AIC(mod0.6, mod0.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this made the model worse
+
+# 28: n2:eke
+mod0.7 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + n2:eke, data = combo_mod)
+vec_AIC <- AIC(mod0.6, mod0.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this made the model worse
+
+#29: sst_sd:eke
+mod0.7 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke, data = combo_mod)
+vec_AIC <- AIC(mod0.6, mod0.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this made the model worse
+
+#30: species:y
+mod0.7 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke + species:y, data = combo_mod)
+vec_AIC <- AIC(mod0.6, mod0.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this made the model worse
+
+#31 species:x
+mod0.7 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke + species:x, data = combo_mod)
+vec_AIC <- AIC(mod0.6, mod0.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this made the model worse
+
+# 32: species:lunar
+mod0.7 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke + species:lunar, data = combo_mod)
+vec_AIC <- AIC(mod0.6, mod0.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this made the model better
+z <- summary(mod0.7)$coefficients/summary(mod0.7)$standard.errors
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+
+# 33: species:n2
+mod0.8 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke + species:lunar + species:n2, data = combo_mod)
+vec_AIC <- AIC(mod0.7, mod0.8)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# this term made the model worse
+
+#34: species:sst_sd
+mod0.8 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke + species:lunar + species:sst_sd, data = combo_mod)
+vec_AIC <- AIC(mod0.7, mod0.8)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# 50/50
+
+#35: species:eke
+mod0.8 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke + species:lunar + species:eke, data = combo_mod)
+vec_AIC <- AIC(mod0.7, mod0.8)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
+AICw
+# 50/50
+
+```
+
+# The final, fixed effect multinomial logistic regression model predicting blue and mako shark cluster placement is: mod0.7 
+
+- Chlorophyll
+- Year
+- Species
+- Latitude
+- Longitude
+- Lunar illumination
+- Buoyancy frequency
+- Sea-surface temperature standard deviation
+- Eddy kinetic energy
+
+- Chlorophyll : Species
+- Chlorophyll : Latitude
+- Year : Longitude
+- Year : Lunar illumination
+- Species : Lunar illumination
+- Latitude : Longitude
+- Longitude : Buoyancy-frequency
+- Lunar illumination : Eddy kinetic energy
+- Sea-surface standard deviation : Eddy kinetic energy
+
+## MIXED EFFECTS MODEL
+# FORWARD SELECTION 1
+Identify the best single predictive variable for cluster placement 
+``` {r MFS1}
+m.mod01 <- mblogit(clus2 ~ sst, data = combo_mod)
+m.mod02 <- mblogit(clus2 ~ sst_sd, data = combo_mod)
+m.mod03 <- mblogit(clus2 ~ ssh, data = combo_mod)
+m.mod04 <- mblogit(clus2 ~ ssh_sd, data = combo_mod)
+m.mod05 <- mblogit(clus2 ~ eke, data = combo_mod)
+m.mod06 <- mblogit(clus2 ~ ild.5, data = combo_mod)
+m.mod07 <- mblogit(clus2 ~ n2, data = combo_mod)
+m.mod08 <- mblogit(clus2 ~ chloro, data = combo_mod)
+m.mod09 <- mblogit(clus2 ~ lunar, data = combo_mod)
+m.mod10 <- mblogit(clus2 ~ bathy, data = combo_mod)
+m.mod11 <- mblogit(clus2 ~ 1, random = ~1|species, data = combo_mod)
+mblogit(cluster ~ 1, random = ~1|species, data = df)
+m.mod12 <- mblogit(clus2 ~ x, data = combo_mod)
+m.mod13 <- mblogit(clus2 ~ y, data = combo_mod)
+
+vec_AIC <- AIC(m.mod01, m.mod02, m.mod03, m.mod04, m.mod05, m.mod06, m.mod07, m.mod08, m.mod09, m.mod10, m.mod11, m.mod12, m.mod13)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Species is best predictor
+rm(m.mod01, m.mod02, m.mod03, m.mod04, m.mod05, m.mod06, m.mod07, m.mod08, m.mod09, m.mod10, m.mod12, m.mod13) # cleanup
+```
+
+# FORWARD SELECTION 2
+Identify the second best single predictive variable for cluster placement 
+``` {r MFS2}
+m.mod01.1 <- mblogit(clus2 ~ species + sst, random = ~1|ptt, data = combo_mod)
+m.mod01.2 <- mblogit(clus2 ~ species + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod01.3 <- mblogit(clus2 ~ species + ssh, random = ~1|ptt, data = combo_mod)
+m.mod01.4 <- mblogit(clus2 ~ species + ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod01.5 <- mblogit(clus2 ~ species + eke, random = ~1|ptt, data = combo_mod)
+m.mod01.6 <- mblogit(clus2 ~ species + ild.5, random = ~1|ptt, data = combo_mod)
+m.mod01.7 <- mblogit(clus2 ~ species + n2, random = ~1|ptt, data = combo_mod)
+m.mod01.8 <- mblogit(clus2 ~ species + bathy, random = ~1|ptt, data = combo_mod)
+m.mod01.9 <- mblogit(clus2 ~ species + chloro, random = ~1|ptt, data = combo_mod)
+m.mod01.10 <- mblogit(clus2 ~ species + lunar, random = ~1|ptt, data = combo_mod)
+m.mod01.11 <- mblogit(clus2 ~ species + x, random = ~1|ptt, data = combo_mod)
+m.mod01.12 <- mblogit(clus2 ~ species + y, random = ~1|ptt, data = combo_mod)
+
+vec_AIC <- AIC(m.mod01.1, m.mod01.2, m.mod01.3, m.mod01.4, m.mod01.5, m.mod01.6, m.mod01.7, m.mod01.8, m.mod01.9, m.mod01.10, m.mod01.11, m.mod01.12)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Chlorophyll is best predictor
+rm(m.mod01.1, m.mod01.2, m.mod01.3, m.mod01.4, m.mod01.5, m.mod01.6, m.mod01.7, m.mod01.8, m.mod01.10, m.mod01.11, m.mod01.12) # cleanup
+```
+
+# FORWARD SELECTION 3
+Identify the third best single predictive variable for cluster placement 
+``` {r MFS3}
+m.mod1.1.01 <- mblogit(clus2 ~ species + chloro + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.02 <- mblogit(clus2 ~ species + chloro + ssh, random = ~1|ptt, data = combo_mod)
+m.mod1.1.03 <- mblogit(clus2 ~ species + chloro + ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.04 <- mblogit(clus2 ~ species + chloro + eke, random = ~1|ptt, data = combo_mod)
+m.mod1.1.05 <- mblogit(clus2 ~ species + chloro + ild.5, random = ~1|ptt, data = combo_mod)
+m.mod1.1.06 <- mblogit(clus2 ~ species + chloro + n2, random = ~1|ptt, data = combo_mod)
+m.mod1.1.07 <- mblogit(clus2 ~ species + chloro + lunar, random = ~1|ptt, data = combo_mod)
+m.mod1.1.08 <- mblogit(clus2 ~ species + chloro + x, random = ~1|ptt, data = combo_mod)
+m.mod1.1.09 <- mblogit(clus2 ~ species + chloro + y, random = ~1|ptt, data = combo_mod)
+
+vec_AIC <- AIC(m.mod1.1.01, m.mod1.1.02, m.mod1.1.03, m.mod1.1.04, m.mod1.1.05, m.mod1.1.06, m.mod1.1.07, m.mod1.1.08, m.mod1.1.09)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Latitude is best predictor
+rm(m.mod1.1.01, m.mod1.1.02, m.mod1.1.03, m.mod1.1.04, m.mod1.1.05, m.mod1.1.06, m.mod1.1.07, m.mod1.1.08) # cleanup
+```
+
+# FORWARD SELECTION 4
+Identify the fourth best single predictive variable for cluster placement 
+``` {r MFS4}
+m.mod1.1.1.01 <- mblogit(clus2 ~ species + chloro + y + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.03 <- mblogit(clus2 ~ species + chloro + y + ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.04 <- mblogit(clus2 ~ species + chloro + y + eke, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.05 <- mblogit(clus2 ~ species + chloro + y + ild.5, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.06 <- mblogit(clus2 ~ species + chloro + y + n2, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.07 <- mblogit(clus2 ~ species + chloro + y + lunar, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.08 <- mblogit(clus2 ~ species + chloro + y + x, random = ~1|ptt, data = combo_mod)
+
+vec_AIC <- AIC(m.mod1.1.1.01, m.mod1.1.1.03, m.mod1.1.1.04, m.mod1.1.1.05, m.mod1.1.1.06, m.mod1.1.1.08)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Lunar illumination is best predictor
+rm(m.mod1.1.1.01, m.mod1.1.1.03, m.mod1.1.1.04, m.mod1.1.1.05, m.mod1.1.1.06, m.mod1.1.1.08) # cleanup
+```
+
+# FORWARD SELECTION 5
+Identify the fifth best single predictive variable for cluster placement 
+``` {r MFS5}
+m.mod1.1.1.1.01 <- mblogit(clus2 ~ species + chloro + y + lunar + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1.02 <- mblogit(clus2 ~ species + chloro + y + lunar + ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1.03 <- mblogit(clus2 ~ species + chloro + y + lunar + eke, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1.04 <- mblogit(clus2 ~ species + chloro + y + lunar + ild.5, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1.05 <- mblogit(clus2 ~ species + chloro + y + lunar + n2, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1.06 <- mblogit(clus2 ~ species + chloro + y + lunar + x, random = ~1|ptt, data = combo_mod)
+
+
+vec_AIC <- AIC(m.mod1.1.1.07, m.mod1.1.1.1.01, m.mod1.1.1.1.02, m.mod1.1.1.1.03, m.mod1.1.1.1.04, m.mod1.1.1.1.05, m.mod1.1.1.1.06)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# n2 is best predictor
+rm(m.mod1.1.1.1.01, m.mod1.1.1.1.02, m.mod1.1.1.1.03, m.mod1.1.1.1.04, m.mod1.1.1.1.06) # cleanup
+```
+
+# FORWARD SELECTION 6
+Identify the sixth best single predictive variable for cluster placement 
+``` {r MFS6}
+m.mod1.1.1.1.1.01 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1.1.02 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1.1.03 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1.1.04 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + x, random = ~1|ptt, data = combo_mod)
+
+
+vec_AIC <- AIC(m.mod1.1.1.1.05, m.mod1.1.1.1.1.01, m.mod1.1.1.1.1.02, m.mod1.1.1.1.1.03, m.mod1.1.1.1.1.04)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# eke is best predictor
+rm(m.mod1.1.1.1.1.01, m.mod1.1.1.1.1.02, m.mod1.1.1.1.1.04) # cleanup
+```
+
+# FORWARD SELECTION 7
+Identify the seventh best single predictive variable for cluster placement 
+``` {r MFS7}
+m.mod1.1.1.1.1.1.01 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1.1.1.02 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + x, random = ~1|ptt, data = combo_mod)
+
+
+vec_AIC <- AIC(m.mod1.1.1.1.1.03, m.mod1.1.1.1.1.1.01, m.mod1.1.1.1.1.1.02)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# sst_sd is best predictor
+rm(m.mod1.1.1.1.1.1.02) # cleanup
+```
+
+# FORWARD SELECTION 8
+Identify the eighth best single predictive variable for cluster placement 
+``` {r MFS8}
+m.mod1.1.1.1.1.1.1.01 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + x, random = ~1|ptt, data = combo_mod)
+
+vec_AIC <- AIC(m.mod1.1.1.1.1.1.01, m.mod1.1.1.1.1.1.1.01)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# previous model was better
+rm(m.mod1.1.1.1.1.1.1.01) # cleanup
+```
+
+# M.E. Including Interaction Terms
+```{r ME Interactions}
+# 1. species:chloro
+m.mod0.1 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod1.1.1.1.1.1.01, m.mod0.1)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction made the model better
+
+# 2. species:y
+m.mod0.2 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.1, m.mod0.2)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction made the model better
+
+# 3. species:lunar
+m.mod0.3 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.2, m.mod0.3)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction made the model better
+
+# 4. species:n2
+m.mod0.4 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + species:n2, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.3, m.mod0.4)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+
+# 5. species:eke
+m.mod0.4 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + species:eke, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.3, m.mod0.4)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+
+# 6. species:sst_sd
+m.mod0.4 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + species:sst_sd, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.3, m.mod0.4)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+
+# 7. chloro:y
+m.mod0.4 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.3, m.mod0.4)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did improve model
+
+# 8. chloro:lunar
+m.mod0.5 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + chloro:lunar, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.4, m.mod0.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+
+# 9. chloro:n2
+m.mod0.5 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + chloro:n2, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.4, m.mod0.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+
+# 10. chloro:eke
+m.mod0.5 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + chloro:eke, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.4, m.mod0.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+
+# 11. chloro:sst_sd
+m.mod0.5 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + chloro:sst_sd, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.4, m.mod0.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model\
+
+# 12. y:lunar
+m.mod0.5 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.4, m.mod0.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did improve model
+
+# 13. y:n2
+m.mod0.6 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.5, m.mod0.6)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did improve model
+
+# 14. y:eke
+m.mod0.7 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + y:eke, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.6, m.mod0.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+
+# 15. y:sst_sd
+m.mod0.7 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + y:sst_sd, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.6, m.mod0.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+
+# 16. lunar:n2
+m.mod0.7 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + lunar:n2, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.6, m.mod0.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+
+# 17. lunar:eke
+m.mod0.7 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + lunar:eke, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.6, m.mod0.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+
+# 18. lunar:sst_sd
+m.mod0.7 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + lunar:sst_sd, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.6, m.mod0.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+
+# 19. n2:eke
+m.mod0.7 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + n2:eke, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.6, m.mod0.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did improve model
+
+# 20. n2:sst_sd
+m.mod0.8 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + n2:eke + n2:sst_sd, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.7, m.mod0.8)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+
+# 21. eke:sst_sd
+m.mod0.9 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + n2:eke + eke:sst_sd, random = ~1|ptt, data = combo_mod)
+vec_AIC <- AIC(m.mod0.7, m.mod0.9)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# this interaction did not improve model
+```
+
+# The mixed effet multinomial logistic regression model predicting blue and mako shark cluster placement is: m.mod0.7 
+
+species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + n2:eke, random = ~1|ptt
+
+Species
+Primary Productivity
+Latitude
+Lunar
+n2
+Eddy Kinetic Energy
+Sea-surface temperature standard deviation
+
+Species : Primary Productivity
+Species : Latitude
+Species : Lunar Illumination
+Primary Productivity : Latitude
+Latitude : Lunar Illumination
+Latitude : Buoyancy Frequency
+Buoyancy Frequency : Eddy Kinetic Energy
+
+
+# Examining Model Results
+Lets consider how the probability of each cluster changes with each individual predictor while holding the other model variables at their mean values
+```{r chloro}
+# Chlorophyll
+p_chloro <- data.frame(
+  chloro = rep(seq(0,6.5, 0.1), times = 8), 
+  species = as.factor(rep(c("I. oxyrinchus", "P. glauca"), each = 264)),
+  y = rep(c(15, 45, 15, 45), each = 132),
+  lunar = as.factor(rep(c(1,2,1,2), times = 132)),
+  n2 = rep(c(6.427669e-05), times = 528),
+  sst_sd = rep(c(0.2973896), times = 528),
+  eke = rep( c(-1.315512), times = 528),
+  ptt = as.factor(rep(c("78683", "106754"), each = 264))
+  )
+
+p_chloro <- cbind(p_chloro, predict(m.mod0.7, newdata = p_chloro, type = "response", se.fit = FALSE))
+lchloro <- melt(p_chloro, id.vars = c("species", "chloro", "y", "lunar", "n2", "sst_sd", "eke", "ptt"), measure.vars = c("3", "1", "2", "4", "5", "6", "7"))
+lchloro$y <- factor(lchloro$y) 
+
+lchloro <- filter(lchloro, lunar == 1)
+
+ggplot(data = lchloro) +
+  geom_line(aes(x = chloro, y = value, color = variable, linetype = y)) +
+  facet_grid(species ~ y)
+```
+
+```{r n2}
+# Buoyancy Frequency
+p_n2 <- data.frame(
+  chloro = rep(c(0.5905629), times = 1368), 
+  species = as.factor(rep(c("I. oxyrinchus", "P. glauca"), each = 684)),
+  y = rep(c(36.74643), times = 1368),
+  lunar = as.factor(rep(c(1,2,1,2), times = 342)),
+  n2 = rep(seq(-4e-06, 0.00085, 0.000005), times = 8),
+  sst_sd = rep(c(0.2973896), times = 1368),
+  eke = rep( c(-1.747338, -0.7923545, -1.747338, -0.7923545), each = 342),
+  ptt = as.factor(rep(c("78683", "106754"), each = 684))
+  )
+
+p_n2 <- cbind(p_n2, predict(m.mod0.7, newdata = p_n2, type = "response", se.fit = FALSE))
+ln2 <- melt(p_n2, id.vars = c("species", "chloro", "y", "lunar", "n2", "sst_sd", "eke", "ptt"), measure.vars = c("3", "1", "2", "4", "5", "6", "7"))
+ln2$eke <- factor(ln2$eke)
+ln2 <- filter(ln2, lunar == 1)
+ln2$variable <- factor(ln2$variable, levels = c(1,2,3,4,5,6,7))
+
+ggplot(data = ln2) +
+  geom_line(aes(x = n2, y = value, color = variable, linetype = eke)) +
+  scale_x_continuous(limits = c(-4e-06, 0.00085)) +
+  facet_grid(species ~ eke)
+
+```
+
+# Cluster Conditions
+This chunk computes the average environmental conditions within each cluster
+```{r cluster conditions}
+combo_mod$Month <- as.numeric(combo_mod$Month)
+combo_mod$Year <- as.numeric(combo_mod$Year)
+combo_mod$lunar <- as.numeric(combo_mod$lunar)
+
+combo_mod %>% group_by(cluster) %>%
+  summarize(
+    sst = mean(sst, na.rm = TRUE),
+    sst_sd = mean(sst_sd, na.rm = TRUE),
+    ssh = mean(ssh, na.rm = TRUE),
+    ssh_sd = mean(ssh_sd, na.rm = TRUE),
+    eke = mean(eke, na.rm = TRUE),
+    ild.5 = mean(ild.5, na.rm = TRUE),
+    n2 = mean(n2, na.rm = TRUE),
+    lunar = median(lunar, na.rm = TRUE),
+    bathy = mean(bathy, na.rm = TRUE),
+    chloro = mean(chloro, na.rm = TRUE),
+    temp200 = mean(Temp200, na.rm = TRUE),
+    month = median(Month, na.rm = TRUE),
+    year = median(Year, na.rm = TRUE)
+  )
+```
+
+1. create boxplots of conditions within each cluster
+```{r conditon boxplots}
+# sst:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = sst, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# sst_sd:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = sst_sd, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# ssh:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = ssh, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# ssh_sd:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = ssh_sd, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# eke:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = eke, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# ild.5:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = ild.5, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  scale_y_reverse()+
+  theme_classic()
+
+# n2:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = n2, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# bathy:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = bathy, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# chloro:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = chloro, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# Temp200:
+ggplot() +
+  geom_boxplot(data = combo_mod, aes(y = Temp200, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+```
+
+2. When did clusters occur:
+Is there a pattern in temporal occurance of different clusters?
+```{r when bar plots}
+# what month is most common in the data overall
+c0 <- omega_combo 
+c0$cluster <- 0
+
+ggplot() +
+  geom_bar(data = c0, aes(x = Month)) +
+  geom_bar(data = omega_combo, aes(x = Month, color = cluster, fill = cluster)) +
+  facet_wrap(~cluster) +
+  theme_classic()
+
+```
+
+3. Who performed each cluster
+What was the frequency at which individual sharks engaged in each cluster
+```{r who bar blots}
+ggplot() +
+  geom_bar(data = c0, aes(x = ptt)) +
+  geom_bar(data = omega_combo, aes(x = ptt, fill = cluster)) +
+  facet_wrap(~species) +
+  coord_flip() +
+  theme_classic()
+```
+
+
+## NOTES FROM 2022/03 ###
+After consulting with the MPG and with Camrin, it seems that there are really only two broad behavioral states that blue and mako sharks exhibit in this dataset. These are epipelagic surface use and diel-vertical migration. However, there appears to be considerable variation in fine-scale patterns of movement within each of these two behavior classes
+
+To examine both coarse and fine scale behavior patterns, we have decided to try a nested clustering approach. Using the course-resolution TAD summaries from the first analysis itteration, we will perform clustering aimed at identifying tracking days from the two broad behavior types. Next, using fine-scale TAD summaries reconstructed from a subset of tracking days for which time-series data are available, we will perform a second round of clustering in an attempt to identify fine-scale behavior variations. 
+
+For this analysis, I will exclude any tracking days which occur in water more shallow than 1000 meters. This is because the environmental drivers of behavior may be confounded with physical habitat constrictions in these locations. For example, conditions on the continental shelf attract blue sharks in the spring and summer to regions where they cannot utilize their normal vertical range - therefore epipelagic surface-use behavior may appear to be more common in warmer waters with high productivity simply because it is limited to shelf occurrences. In reality, the drivers of this behavior in the pelagic habitat of blue sharks may be much different.
+
+# Course Clustering Data
+This chunk compiles the data for a course-resolution cluster anlaysis of blue and mako shark behavior:
+```{r course cluster: data}
+# filter tracking days in water shallower than 1000 meters
+course_tad <- filter(omega_combo, bathy <= -1000)
+course_m7 <- filter(m7, depth <= -1000)
+
+# select relevant columns
+course_tad <- course_tad %>% dplyr::select(c("Date", "bin1", "bin2", "bin3", "bin4" , "bin5", "bin6", "bin7", "bin8", "ptt", "species"))
+course_m7 <- course_m7 %>% dplyr::select(c("Date", "bin1", "bin2", "bin3", "bin4" , "bin5", "bin6", "bin7", "bin8", "ptt", "species"))
+
+# add lucky mako 7 to the main dataset
+course_m7$ptt <- factor(course_m7$ptt)
+course_tad <- rbind(course_tad, course_m7) # results in 1337 tracking days for clustering
+rm(course_m7)
+
+# adding kode back to course_tad
+course_tad <- course_tad %>% mutate(kode = paste(Date, ptt, sep = "_"))
+course_blue <- course_tad %>% filter(species == "P. glauca") # 824 tracking days
+course_mako <- course_tad %>% filter(species == "I. oxyrinchus") # 513 tracking days
+```
+
+This chunk performs cluster analysis on the course-resolution data:
+```{r course cluster: analysis}
+## heirarchical clustering code
+Ctad <-  course_tad %>% dplyr::select(c("bin1", "bin2", "bin3", "bin4" , "bin5", "bin6", "bin7", "bin8"))
+Ctad[Ctad < 10] <- 0 # set low occurrence bins to 0 - Sal's recommendation but may need to be omitted
+
+combo_dist <- dist(Ctad, method = "manhattan")
+
+Clust <- hclust(combo_dist, method = "average")
+
+## statistical assessments for optimum number of clusters
+NbClust(data = Ctad, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "ch")
+# LowToZero: 12 clusters
+# Raw: 8 clusters
+
+NbClust(data = Ctad, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "duda")
+# LowToZero: 2 clusters
+# Raw: 2 clusters
+
+NbClust(data = Ctad, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "cindex")
+# LowToZero: 20 clusters 
+# Raw: 20 clusters
+
+NbClust(data = Ctad, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "beale")
+# LowToZero: 2 clusters
+# Raw: 2 clusters
+
+## examining cluster results
+combo_sub_grp <- cutree(Clust, k = 4)
+table(combo_sub_grp)
+# NOTE: Setting low bins to 0 seems to affect the NbClust outcomes but hardly affects the clustering scheme itself based on the cuttree outcomes for k = 1:5
+Ctad$cluster <- combo_sub_grp
+
+course_tad$cluster <- combo_sub_grp
+
+clust_stamp <- course_tad %>% dplyr::select(kode, species, cluster)
+```
+
+This next chunk visualizes the different course-resolution clusters created on line 2962-2969 of the above chunk:
+```{r course cluster: visualization}
+combo_series <- rbind(mako_series, blue_series)
+combo_series$Local_Time <- as_hms(combo_series$Local_Time)
+course_series <- inner_join(combo_series, clust_stamp, by = "kode")
+unique(course_series$kode)
+
+# daily cluster kernal density heatmaps
+ggplot(data = course_series, aes(x = Local_Time, y = depth) ) +
+  stat_density_2d(aes(fill = ((..ndensity..))), geom = "raster", contour = FALSE) +
+  facet_wrap(~cluster) +
+  scale_fill_viridis(option = "magma") + 
+  labs(fill = "Density") +
+  scale_y_reverse() +
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  xlab("Time of Day") +
+  ylab("Depth(m)") +
+  theme_minimal()
+
+# daily cluster point maps
+ggplot(data = course_series) +
+  geom_point(aes(x = Local_Time, y = depth, color = species), alpha = 0.5) +
+  facet_grid(cluster ~ species) + 
+  scale_y_reverse() +
+  theme_classic()
+```
+
+
+
+
