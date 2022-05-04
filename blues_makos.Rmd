@@ -17,6 +17,7 @@ library(tidyverse)
 library(ggplot2)
 library(writexl)
 library(readxl)
+library(cmocean)
 
 # clustering #
 library(NbClust)
@@ -123,7 +124,7 @@ btad_9$TimeAtDepthBin12 <- 0
 btad_11$TimeAtDepthBin12 <- 0
 
 # now combine bins to create the below distribution
-bins_max <- c(10, 50, 100, 200, 300, 400, 500, 2000)
+bins <- c(0, 10, 50, 100, 200, 300, 400, 500, 2000)
 # Camrin's Innate Bins = c(2, 10, 20, 50, 100, 200, 300, 400, 500, 700, 1000, 2000)
 # Gregory's Innate Bins = c(5, 10, 25, 50, 75, 100, 150, 200, 300, 400, 500, 600, 800, 2000)
 
@@ -207,6 +208,10 @@ for (i in 4:length(makos)) {
   print(i)
 }
 
+pdt$dup <- pdt$DateTime_local
+pdt <- pdt %>% separate(dup, into = c("Date", "Time"), sep = "([ ])")
+pdt <- pdt %>% mutate(kode = paste(Date, ptt, sep = "_"))
+
 ggplot(data = pdt) +
   geom_histogram(data = subset(pdt, dn == "d"), aes(x = temperature, y = -(..count..)/sum(..count..)), fill = NA, color = "black") +
   geom_histogram(data = subset(pdt, dn =="n"), aes(x = temperature, y = (..count..)/sum(..count..)), color = "black") +
@@ -234,6 +239,11 @@ for (i in 1:length(blues)) {
   rm(etuff, hdr, temp, interp, series)
   print(i)
 }
+
+pdtb$dup <- pdtb$DateTime_local
+pdtb <- pdtb %>% separate(dup, into = c("Date", "Time"), sep = "([ ])")
+pdtb <- pdtb %>% mutate(kode = paste(Date, ppt, sep = "_"))
+pdtb <- left_join(pdtb, ild_stmp)
 
 ggplot() +
   geom_histogram(data = subset(pdtb, dn == "d"), aes(x = temperature, y = -(..count..)/sum(..count..)), fill = NA, color = "black") +
@@ -377,9 +387,9 @@ ggplot(data = propsb, aes(x = as.hms(Time_Local), y = temperature) ) +
 # cleanup
 rm(props, propsb, duptimes, idx, duprops, dupropsb)
 ```
+
 # Time-series information
 These loops compile the time-series data from each of Camrin's tagged sharks (Greg's tags did not collect this information)
-
 ```{r get_series}
 # makos
 for (i in 4:length(makos)) {
@@ -423,27 +433,211 @@ bseries_12 <- bseries_12[,-4]
 blue_series <- rbind(bseries_1, bseries_2, bseries_3, bseries_4, bseries_5, bseries_6, bseries_7, bseries_8, bseries_9, bseries_10, bseries_11, bseries_12, bseries_13)
 ```
 
-# general vertical habitat figure
-Here we will compile series data from all tagged sharks which recorded data from 2016-01-18 through 2016-01-25:
-``` {r series general vert. habitat}
-bs <- blue_series %>% filter(Date == "2016-01-18" | Date == "2016-01-19" | Date == "2016-01-20" | Date == "2016-01-21" | Date == "2016-01-22" | Date == "2016-01-23" | Date == "2016-01-24" | Date == "2016-01-25")
-bs <- bs %>% filter(ptt == 141259)
-bs$DateTime_local <- bs$DateTime - 18000
-bs$species <- "P.glauca"
+# GENERAL VERTICAL HABITAT FIGURE
+The goal here is to try and make a figure that shows the series track over a large swath of deployment time for a single individual blue and mako shark. This figure should capture a variety of behavior types in a variety of vertical habitats (ie. shelf, slope, plains):
+``` {r series general vert. habitat: blues}
+btuff <- read_etuff(blues[7])
+b_hdr <- get_header(blues[7])
+b_temp <- get_pdt(btuff)
+b_interp <- interp_pdt(btuff)
+b_series <- get_series(btuff)
+b_series <- filter(b_series, !is.na(depth))
+b_series <- add_series_temp(b_series, b_temp, b_interp)
+b_series <- filter(b_series, !is.na(temperature))
+b_series$dn <- add_daynight(b_series, btuff)
+b_series$ppt <- b_hdr$ptt
+rm(btuff, b_hdr, b_temp, b_interp)
+b_series$dup <- b_series$DateTime_local
+b_series <- b_series %>% separate(dup, into = c("Date", "Time"), sep = "([ ])")
+b_series <- b_series %>% mutate(kode = paste(Date, ppt, sep = "_"))
+b_series$species <- "P.glauca"
 
-ms <- mako_series %>% filter(Date == "2016-01-18" | Date == "2016-01-19" | Date == "2016-01-20" | Date == "2016-01-21" | Date == "2016-01-22" | Date == "2016-01-23" | Date == "2016-01-24" | Date == "2016-01-25")
-ms$DateTime_local <- ms$DateTime - 18000
-ms$species <- "I.oxyrinchus"
 
-cs <- rbind(ms, bs)
-cs$ptt <- factor(cs$ptt)
+# add bathymetry
+bathy_stamp <- bathy_stamp %>% rename(bathy = depth)
+b_series <- left_join(b_series, bathy_stamp, by = c("kode"))
+b_series$bathy <- b_series$bathy * -1
 
-ggplot() +
-  geom_line(data = cs, aes(x = DateTime_local, y = depth, color = species)) +
-  scale_y_reverse() +
-  facet_grid(species~.) +
-  theme_classic()
+# add mixed layer depth
+ild.5_stmp <- high_res %>% dplyr::select(c("kode", "ild.5"))
+ild.5_stmp.2 <- omega_combo %>% dplyr::select(c("kode", "ild.5"))
+ild_stamp <- rbind(ild_stmp, ild.5_stmp.2)
+rm(ild_stmp, ild.5_stmp.2)
+ild_stamp <- ild_stamp[which(!duplicated(ild_stamp$kode)),]
+
+b_series <- left_join(b_series, ild_stamp, by = c("kode"))
+b_series <- filter(b_series, !is.na(ild.5))
+
+# series plot
+main.b <- ggplot(data = b_series) +
+  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = bathy, ymax = 1000)) +
+  geom_point(aes(x = DateTime_local, y = depth, color = temperature)) +
+  scale_color_cmocean(name = "thermal", limits = c(5,30)) +
+  geom_line(aes(x = DateTime_local, y = ild.5), color = "grey22", alpha = 0.8, size = 1.5) +
+  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = 200, ymax = 1000), color = "grey33", alpha = 0.4) +
+  ylab("Depth (m)") +
+  xlab("Month") +
+  scale_y_reverse(limits = c(1000, 0)) +
+  theme_classic() +
+  guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
+  theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+
+# cumulative time-at-depth sub-plot (1)
+blue.cm.depth <- blue_series %>% group_by(dn) %>% count(depth)
+blue.cm.depth <- blue.cm.depth %>% mutate(percentage = (n/sum(n))*100)
+blue.cm.depth <- blue.cm.depth %>% mutate(cum.per = cumsum(percentage))
+
+sub.b <- ggplot(data = filter(blue.cm.depth, !is.na(dn))) +
+  geom_line(aes(x = cum.per, y = depth, color = dn)) +
+  scale_y_reverse(limits = c(2000, 0), breaks = c(2000, 1750, 1500, 1250, 1000, 750, 500, 250, 0), minor_breaks = 4) +
+  scale_x_continuous(breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100), position = "top") +
+  scale_color_manual(values = c("grey35", "grey10")) +
+  ylab("") +
+  xlab("Cumulative Time at Depth (%)") +
+  theme_grey() +
+  theme(legend.position = "none", plot.margin = unit(rep(0, 4), "cm"))
+
+# Time-at-depth Histogram sub-plot (2)
+# step 1: calculate the percentage of time in each depth bin for each day for each individual
+blue.bin.depth <- blue_series %>% group_by(ptt, Date, dn)
+blue.bin.depth$bin <- cut(blue.bin.depth$depth, breaks = bins, labels = c(seq(1:8)), include.lowest = TRUE)
+
+blue.bin.depth <- blue.bin.depth %>% count(bin, .drop = FALSE)
+blue.bin.depth <- blue.bin.depth %>% mutate(tot = sum(n))
+blue.bin.depth <- blue.bin.depth %>% filter(tot >= 190)
+blue.bin.depth <- blue.bin.depth %>% mutate(perc = (n / tot)*100)
+
+blue.bin.depth <- ungroup(blue.bin.depth) %>% group_by(ptt, dn, bin) %>% summarize(m = mean(perc))
   
+# step 2: calculate the mean and standard error for each bin
+blue.bin.depth <- ungroup(blue.bin.depth) %>% group_by(dn, bin) %>% summarize(perc = mean(m), , se = sd(m))
+
+# step 3: graph it
+blue.bin.depth$bin <- as.numeric(blue.bin.depth$bin)
+sub.b <- ggplot() +
+  geom_col(data = filter(blue.bin.depth, dn == "d"), aes(x = bin, y = -perc), width = 1, fill = NA, color = "black") +
+  geom_errorbar(data = filter(blue.bin.depth, dn == "d"), aes(x = bin, ymin = (-perc), ymax = (-perc-se)), width = 0.5, color = "black", alpha = 0.6) +
+  geom_col(data = filter(blue.bin.depth, dn == "n"), aes(x = bin, y = perc), width = 1, fill = "grey", color= "black") +
+  geom_errorbar(data = filter(blue.bin.depth, dn == "n"), aes(x = bin, ymin = (perc), ymax = (perc+se)), width = 0.5, color = "black", alpha = 0.6) +
+  scale_x_reverse(breaks = c(0, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100","200","300", "400", "500", "2000")) +
+  scale_y_continuous(limits = c(-60,60), breaks = c(-60,-50,-40,-30,-20,-10, 0,10,20,30,40,50,60), labels = c(60,50,40,30,20,10,0,10,20,30,40,50,60), position = "right") +
+  xlab("Depth (m)") +
+  ylab("Time at Depth (%)") +
+  coord_flip() +
+  theme_classic() 
+
+#A viewport taking up a fraction of the plot area
+library(grid)
+vp <- viewport(width = 0.4, height = 0.4, x = 0.8, y = 0.3)
+#Just draw the plot twice
+png("BlueVertHabitat.png")
+main.b
+print(sub.b, vp = vp)
+dev.off()
+```
+
+``` {r series general vert. habitat: makos}
+mtuff <- read_etuff(makos[5])
+m_hdr <- get_header(makos[5])
+m_temp <- get_pdt(mtuff)
+m_interp <- interp_pdt(mtuff)
+m_series <- get_series(mtuff)
+m_series <- filter(m_series, !is.na(depth))
+m_series <- add_series_temp(m_series, m_temp, m_interp)
+m_series <- filter(m_series, !is.na(temperature))
+m_series$dn <- add_daynight(m_series, mtuff)
+m_series$ppt <- m_hdr$ptt
+rm(mtuff, m_hdr, m_temp, m_interp)
+m_series$dup <- m_series$DateTime_local
+m_series <- m_series %>% separate(dup, into = c("Date", "Time"), sep = "([ ])")
+m_series <- m_series %>% mutate(kode = paste(Date, ppt, sep = "_"))
+m_series$species <- "I.oxyrinchus"
+
+# add bathymetry
+m_series <- left_join(m_series, bathy_stamp, by = c("kode"))
+m_series$bathy <- m_series$bathy * -1
+
+# add mixed layer depth
+m_series <- left_join(m_series, ild_stamp, by = c("kode"))
+m_series <- filter(m_series, !is.na(ild.5))
+
+# series graph
+breaks <- as.POSIXct(c("2017-11-01 00:00:00", "2017-12-01 00:00:00", "2018-01-01 00:00:00"))
+
+main.m <- ggplot(data = m_series) +
+  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = bathy, ymax = 1000)) +
+  geom_point(aes(x = DateTime_local, y = depth, color = temperature)) +
+  scale_color_cmocean(name = "thermal", limits = c(5,30)) +
+  geom_line(aes(x = DateTime_local, y = ild.5), color = "grey22", alpha = 0.8, size = 1.5) +
+  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = 200, ymax = 1000), color = "grey33", alpha = 0.4) +
+  ylab("Depth (m)") +
+  xlab("Month") +
+  scale_y_reverse(limits = c(1000, 0)) +
+  theme_classic() +
+  guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
+  theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+
+# cumulative time-at-depth graph (1)
+mako.cm.depth <- mako_series %>% group_by(dn) %>% count(depth)
+mako.cm.depth <- mako.cm.depth %>% mutate(percentage = (n/sum(n))*100)
+mako.cm.depth <- mako.cm.depth %>% mutate(cum.per = cumsum(percentage))
+
+sub.m <- ggplot(data = filter(mako.cm.depth, !is.na(dn))) +
+  geom_line(aes(x = cum.per, y = depth, color = dn)) +
+  scale_y_reverse(limits = c(2000, 0), breaks = c(2000, 1750, 1500, 1250, 1000, 750, 500, 250, 0), minor_breaks = 4) +
+  scale_x_continuous(breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100), position = "top") +
+  scale_color_manual(values = c("grey35", "grey10")) +
+  ylab("") +
+  xlab("Cumulative Time at Depth (%)") +
+  theme_classic() +
+  theme(legend.position = "none") + 
+  theme(legend.position = "none", plot.margin = unit(rep(0, 4), "cm"))
+
+#A viewport taking up a fraction of the plot area
+vp.m <- viewport(width = 0.4, height = 0.4, x = 0.8, y = 0.3)
+
+#Just draw the plot twice
+png("MakoVertHabitat.png")
+main.m
+print(sub.m, vp = vp.m)
+dev.off()
+
+# Time-at-depth Histogram sub-plot (2)
+# step 1: calculate the percentage of time in each depth bin for each day for each individual
+mako.bin.depth <- mako_series %>% group_by(ptt, Date, dn)
+mako.bin.depth$bin <- cut(mako.bin.depth$depth, breaks = bins, labels = c(seq(1:8)), include.lowest = TRUE)
+
+mako.bin.depth <- mako.bin.depth %>% count(bin, .drop = FALSE)
+mako.bin.depth <- mako.bin.depth %>% mutate(tot = sum(n))
+mako.bin.depth <- mako.bin.depth %>% filter(tot >= 190)
+mako.bin.depth <- mako.bin.depth %>% mutate(perc = (n / tot)*100)
+
+mako.bin.depth <- ungroup(mako.bin.depth) %>% group_by(ptt, dn, bin) %>% summarize(m = mean(perc))
+  
+# step 2: calculate the mean and standard error for each bin
+mako.bin.depth <- ungroup(mako.bin.depth) %>% group_by(dn, bin) %>% summarize(perc = mean(m), , se = sd(m))
+
+# step 3: graph it
+mako.bin.depth$bin <- as.numeric(mako.bin.depth$bin)
+sub.m <- ggplot() +
+  geom_col(data = filter(mako.bin.depth, dn == "d"), aes(x = bin, y = -perc), width = 1, fill = NA, color = "black") +
+  geom_errorbar(data = filter(mako.bin.depth, dn == "d"), aes(x = bin, ymin = (-perc), ymax = (-perc-se)), width = 0.5, color = "black", alpha = 0.6) +
+  geom_col(data = filter(mako.bin.depth, dn == "n"), aes(x = bin, y = perc), width = 1, fill = "grey", color= "black") +
+  geom_errorbar(data = filter(mako.bin.depth, dn == "n"), aes(x = bin, ymin = (perc), ymax = (perc+se)), width = 0.5, color = "black", alpha = 0.6) +
+  scale_x_reverse(breaks = c(0, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100","200","300", "400", "500", "2000")) +
+  scale_y_continuous(limits = c(-60,60), breaks = c(-60,-50,-40,-30,-20,-10, 0,10,20,30,40,50,60), labels = c(60,50,40,30,20,10,0,10,20,30,40,50,60), position = "right") +
+  xlab("") +
+  ylab("Time at Depth (%)") +
+  coord_flip() +
+  theme_classic() +
+  theme(plot.margin = unit(rep(0, 4), "cm"))
+
+
+#Just draw the plot twice
+png("MakoVertHabitat2.png")
+main.m
+print(sub.m, vp = vp.m)
+dev.off()
 ```
 
 # Tagging location map
@@ -492,7 +686,10 @@ hue_pal()(2)
 
 ggplot(data = r_df) +
   geom_raster(aes(x = x, y = y, fill = Elevation.relative.to.sea.level), show.legend = FALSE) +
+  geom_contour(aes(x = x, y = y, z = Elevation.relative.to.sea.level), color = "white", breaks = c(-200, -1000)) +
   scale_fill_gradient(low = "black", high = "grey") +
+  scale_x_continuous(minor_breaks = c(-70, -50, -30, -10)) +
+  scale_y_continuous(minor_breaks = c(15, 25, 35, 45, 55)) +
   coord_quickmap() +
   
   geom_path(data = btrack_1, aes(longitude, latitude), color = "#00BFC4") +
@@ -566,7 +763,7 @@ ggplot(data = r_df) +
   
   xlab("Longitude") +
   ylab("Latitude") +
-  theme_minimal() +
+  theme_linedraw() +
   theme(element_blank())
 ```
 ``` {r cleanup}
@@ -1460,8 +1657,9 @@ library(raster)
 
 tVec <- c(seq.Date(as.Date('2015-10-01'), as.Date('2016-04-01'), by='month'),
           seq.Date(as.Date('2016-09-01'), as.Date('2017-03-01'), by='month'),
-          seq.Date(as.Date('2017-11-01'), as.Date('2018-01-01'), by='month')
-)
+          seq.Date(as.Date('2017-11-01'), as.Date('2018-01-01'), by='month'),
+          seq.Date(as.Date('2021-10-01'), as.Date('2021-12-01'), by='month'))
+
 for (i in 1:length(tVec)){
   doy <- lubridate::yday(tVec[i])
   if (nchar(doy) == 1) doy <- paste('00', doy, sep='')
@@ -1485,7 +1683,7 @@ for (i in 1:length(fileList)){
   system(paste('gunzip -k ', fileList[i], sep=''))
 }
 
-for (i in 1:17){
+for (i in 1:(length(tVec))){
   t1 <- Sys.time()
   doy <- lubridate::yday(tVec[i])
   if (nchar(doy) == 1) doy <- paste('00', doy, sep='')
@@ -1500,14 +1698,13 @@ for (i in 1:17){
   crs_geo <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"
   crs(vgpm) <- crs_geo
   t3 <- Sys.time()
-  vgpm_proj <- projectRaster(vgpm, crs=CRS("+init=epsg:3832"))
-  
+  vgpm_proj <- projectRaster(vgpm, crs=crs_geo)
+
   #plot(vgpm_proj)
   
-  e <- extent(250, 330, 0, 50)
+  e <- extent(-80, -35, 0, 50)
   e <- as(e, 'SpatialPolygons')
   crs(e) <- crs_geo
-  e <- spTransform(e, CRS("+init=epsg:3832"))
   
   vgpm_new <- mask(vgpm_proj, e)
   vgpm_new <- projectRaster(vgpm_new, crs=crs_geo)
@@ -1526,19 +1723,20 @@ fileList <- fileList[grep('.gri', fileList)]
 # extract monthly chlorophyll values for each track location
 tVec <- c(seq.Date(as.Date('2015-10-01'), as.Date('2016-04-01'), by='month'),
           seq.Date(as.Date('2016-09-01'), as.Date('2017-03-01'), by='month'),
-          seq.Date(as.Date('2017-11-01'), as.Date('2018-02-01'), by='month')
+          seq.Date(as.Date('2017-11-01'), as.Date('2018-01-01'), by='month'),
+          seq.Date(as.Date('2021-10-01'), as.Date('2021-12-01'), by='month')
 )
 
 data <- data.frame()
 
-for(i in 1:17) {
+for(i in 1:(length(tVec)-1)) {
   doy <- lubridate::yday(tVec[i])
   if (nchar(doy) == 1) doy <- paste('00', doy, sep='')
   if (nchar(doy) == 2) doy <- paste('0', doy, sep='')
   yrday <- paste(lubridate::year(tVec[i]), doy, sep='')
   file <- fileList[grep(yrday, fileList)]
   c_brick <- raster(file)
-  sub1 <- blank[blank$Date >= tVec[i] & blank$Date <= tVec[i+1],]
+  sub1 <- blank[blank$Date >= tVec[i] & blank$Date < tVec[i+1],]
   extraction_points <- data.frame(
     x = sub1$longitude,
     y = sub1$latitude
@@ -1552,42 +1750,25 @@ for(i in 1:17) {
   print(i)
 }
 
+blank <- data
 
+# check to see if it worked
+test <- left_join(high_res, chloro.stmp, by = c("kode"))
+test <- test %>% filter(!is.na(chloro))
+test <- rbind(test, blank)
 
-# transform the array into a raster layer
-r_brick <- raster(depth.array, xmn=min(lat), xmx=max(lat), ymn=min(lon), ymx=max(lon), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
-# check orrientation
-plot(r_brick)
-# correct the orrientation of the raster brick
-r_brick <- flip(t(r_brick), direction='y')
+sum(high_res[order(high_res$kode),] != test[order(test$kode),-c(43)]) # this should equal 0
 
-# extracting points from the brick
-bathy <- data.frame()
+# now combine the data for real
+high_res <- left_join(high_res, chloro.stmp, by = c("kode"))
+high_res <- high_res %>% filter(!is.na(chloro))
+high_res <- rbind(high_res, blank)
 
-for(i in 1:nrow(extraction_points)) {
-  point_series <- raster::extract(r_brick, extraction_points[i,], method='simple')
-  data <- data.frame(
-    point = c(i),
-    lat = extraction_points[i,2], 
-    lon = extraction_points[i,1],
-    depth = c(point_series)
-  )
-  
-  bathy <- rbind(bathy, data)
-  
-  rm(data)
-  print(i)
-}
+rm(data) # cleanup
+```
 
-# cleanup and formatting
-bathy <- bathy %>% filter(!is.na(depth))
-
-m7 <- cbind(m7, bathy)
-m7 <- m7[,-c(34:36)]
-
-rm(r_brick) #cleanup
-
-
+```{r LUNAR}
+high_res$lunar <- lunar::lunar.illumination(as.Date(high_res$Date), shift = 6)
 ```
 
 # Downloading data from HYCOM
@@ -1597,161 +1778,18 @@ sp.lim <- list(lonmin = -79, lonmax = -10, latmin = 7, latmax = 48)
 get.env(uniqueDates = as.POSIXct("2015-11-24"), filename = "hycom", type = "hycom", spatLim = sp.lim, save.dir = '~/Desktop/')
 ```
 
-# Extracting Temperature at Depth 
-```{r T200}
-# MAKOS
-# STEP 1: Reclaim temperature at depth values from PSAT tags
-mako_mod <- omega_combo %>% filter(species == "I. oxyrinchus")
-
-z <- data.frame()
-
-for (i in 1:length(makos)) {
-  etuff <- read_etuff(makos[i])
-  temp <- get_pdt(etuff)
-  temp$ptt <- etuff$meta$ptt
-  #temp <- temp %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
-  temp$Date <- as.character(temp$Date)
-  #temp <- temp[,-c(2)]
-  temp <- temp %>% filter(PdtDepth == 200)
-  temp <- temp %>% transmute(
-    kode = paste(Date, ptt, sep = "_"),
-    "Temp200" = ((PdtTempMax + PdtTempMin)/2) 
-  )
-  alt <- inner_join(mako_mod, temp, by = "kode")
-  z <- rbind(z, alt)
-  print(i)
-  rm(etuff, temp, alt)
-}
-
-## Temperature at 200 meters extracted for 34 days
-alt <- left_join(mako_mod, z)
-
-# find days that are still missing temperature data
-temp <- alt %>% filter(is.na(Temp200))
-
-# STEP 2: Extract missing values from NetCDF files
-hList <- list.files(path = "/Volumes/A_DRIVE/HYCOM/",full.names = T)
-
-mdate <- unique(mako_mod$Date.y) 
-
-mtemp <- data.frame()
-
-for (i in 1:length(mdate)) {
-  r <- hList[grep(paste(mdate[i]), hList)]
-  sub <- temp %>% filter(Date.y == mdate[i])
-  r <- raster(r, band = 23)
-  extract_pts <- sub[,4:5]
-  ext <- raster::extract(r, extract_pts, method = "simple")
-  sub$Temp200 <- ext
-  mtemp <- rbind(mtemp, sub)
-  print(i)
-  rm(r,sub,extract_pts,ext)
-}
-# ~251 temperature values extracted from this code
-
-# separate the blanks
-blanks <- mtemp %>% filter(is.na(Temp200))
-# separate filled values
-mtemp <-  mtemp %>% filter(!is.na(Temp200))
-
-# values are still missing because the longitude coorinate is in the wrong format - this loop will correct it
-for (i in 1:nrow(blanks)) {
-  r <- hList[grep(paste(blanks[i,1]), hList)]
-  sub <- blanks[i,]
-  r <- raster(r, band = 23)
-  extract_pts <- sub[,4:5]
-  extract_pts$x <- extract_pts$x + 360 # correct a different format in longitude
-  ext <- raster::extract(r, extract_pts, method = "simple")
-  sub$Temp200 <- ext
-  mtemp <- rbind(mtemp, sub)
-  print(i)
-  rm(r,sub,extract_pts,ext)
-}
-
-rm(blanks)
-
-# get rid of NA's that have now been filled
-alt <- alt %>% filter(!is.na(Temp200))
-
-# combine observed and modelled data
-mtemp <- rbind(alt, mtemp)
-mako_mod <- mtemp
-rm(mtemp)
-
-# BLUE SHARKS
-## Extracting data from Depth-Temperature Profiles
-blue_mod <- omega_combo %>% filter(species == "P. glauca")
-
-z <- data.frame()
-
-for (i in 1:length(blues)) {
-  etuff <- read_etuff(blues[i])
-  temp_blue <- get_pdt(etuff)
-  temp_blue$ptt <- etuff$meta$ptt
-  #temp_blue <- temp_blue %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
-  temp_blue$Date <- as.character(temp_blue$Date)
-  #temp_blue <- temp_blue[,-c(2)]
-  temp_blue <- temp_blue %>% filter(PdtDepth == 200)
-  temp_blue <- temp_blue %>% transmute(
-    kode = paste(Date, ptt, sep = "_"),
-    "Temp200" = ((PdtTempMax + PdtTempMin)/2) 
-  )
-  alt <- inner_join(blue_mod, temp_blue, by = "kode")
-  z <- rbind(z, alt)
-  print(i)
-  rm(etuff, temp, alt)
-}
-# Produces 100 observed values for Temp 200
-
-alt_blue <- left_join(blue_mod, z)
-
-temp_blue <- alt_blue %>% filter(is.na(Temp200))
-
-# Using HYCOM data to fill in the blanks
-
-bdate <- unique(blue_mod$Date.y) 
-
-btemp <- data.frame()
-
-for (i in 1:length(bdate)) {
-  r <- hList[grep(paste(bdate[i]), hList)]
-  sub <- temp_blue %>% filter(Date.y == bdate[i])
-  r <- raster(r, band = 23)
-  extract_pts <- sub[,4:5]
-  extract_pts$x <- extract_pts$x + 360
-  ext <- raster::extract(r, extract_pts, method = "simple")
-  sub$Temp200 <- ext
-  btemp <- rbind(btemp, sub)
-  print(i)
-  rm(r,sub,extract_pts,ext)
-}
-# all remaining NAs occur in water more shallow than 200 meters
-
-# get rid of NAs which have now been filled
-alt_blue <- alt_blue %>% filter(!is.na(Temp200))
-btemp <- rbind(alt_blue, btemp)
-blue_mod <- btemp
-rm(btemp)
-```
-
 ## MULTINOMIAL LOGISTIC REGRESSION ANALYSIS ##
 # Cross correlation analysis
 Determine if any of your environmental variables are colinear
-```{r cortest}
-combo_mod <- rbind(mako_mod, blue_mod)
-combo_mod <- combo_mod %>% filter(cluster != 8 & cluster != 9)
-c.cor <- cor(combo_mod[,c(4:15,30)], use = "complete.obs")
-```
+```{r formatting}
+combo_mod <- high_res %>% dplyr::select(c(Date, kode, species, ptt, cluster, latitude, longitude, depth, sst, sst_sd, ssh, ssh_sd, eke, ild.5, n2, chloro, lunar))
+combo_mod <- combo_mod %>% filter(cluster != 6 & cluster != 7 & cluster != 8 & cluster != 9 & cluster != 10 & cluster != 11)
 
-## FIXED EFFECT MODEL 
-# FORWARD SELECTION 1
-Identify the best single predictive variable for cluster placement 
-``` {r FS1}
-combo_mod$clus2 <- relevel(as.factor(combo_mod$cluster), ref = 3)
-combo_mod$species <- relevel(as.factor(combo_mod$species), ref = "P. glauca")
+combo_mod$clus2 <- relevel(as.factor(combo_mod$cluster), ref = 1)
+combo_mod$species <- relevel(as.factor(combo_mod$species), ref = "P.glauca")
 combo_mod$ptt <- factor(combo_mod$ptt)
-#combo_mod$ptt <- relevel(as.factor(combo_mod$ptt), ref = "106754")
 
+# convert lunar to factor variable based on phase
 full <- combo_mod %>% filter(lunar >= 0.75)
 full$lunar <- 2
 mid <- combo_mod %>% filter(lunar < 0.75)
@@ -1759,946 +1797,333 @@ mid$lunar <- 1
 combo_mod <- rbind(full, mid)
 combo_mod$lunar <- relevel(as.factor(combo_mod$lunar), ref = 1)
 rm(full, mid)
-
-combo_mod <- combo_mod %>% separate(Date, into = c("Year", "Month", "Day"), sep = "([-])")
-greg <- combo_mod %>% filter(Year == 2008 | Year == 2009)
-greg$Year <- 1
-cam <- combo_mod %>% filter(Year != 2008 & Year != 2009)
-cam$Year <- 2
-combo_mod <- rbind(cam, greg)
-rm(cam, greg)
-combo_mod$Year <- relevel(as.factor(combo_mod$Year), ref = "2")
-combo_mod$Month <- relevel(as.factor(combo_mod$Month), ref = "12")
-
-
-mod01 <- multinom(clus2 ~ sst, data = combo_mod) # AIC: 3740.653
-mod02 <- multinom(clus2 ~ sst_sd, data = combo_mod) # AIC: 3921.486
-mod03 <- multinom(clus2 ~ ssh, data = combo_mod) # AIC: 3817.16
-mod04 <- multinom(clus2 ~ ssh_sd, data = combo_mod) # AIC: 4224.496 
-mod05 <- multinom(clus2 ~ eke, data = combo_mod) # AIC: 4242.071 
-mod06 <- multinom(clus2 ~ ild.5, data = combo_mod) # AIC: 4235.485
-mod07 <- multinom(clus2 ~ n2, data = combo_mod) # AIC: 4207.371
-mod08 <- multinom(clus2 ~ bathy, data = combo_mod) # AIC: 4117.645
-mod09 <- multinom(clus2 ~ chloro, data = combo_mod) # AIC: 4014.514
-mod10 <- multinom(clus2 ~ lunar, data = combo_mod) # AIC: 4236.469 
-mod11 <- multinom(clus2 ~ species, data = combo_mod) # AIC: 3819.802
-mod12 <- multinom(clus2 ~ x, data = combo_mod) # AIC: 3986.341
-mod13 <- multinom(clus2 ~ y, data = combo_mod) # AIC: 3954.994
-mod14 <- multinom(clus2 ~ Year, data = combo_mod) # AIC: 3607.569 OR 3807.989 for greg vs. cam
-mod15 <- multinom(clus2 ~ Month, data = combo_mod) # AIC: 4139.339
-
-vec_AIC <- AIC(mod01, mod02, mod03, mod04, mod05, mod06, mod07, mod08, mod09, mod10, mod11, mod12, mod13, mod14, mod15)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# Chlorophyll is best predictor
-rm(mod01, mod02, mod03, mod04, mod05, mod06, mod07, mod08, mod10, mod11, mod13, mod14, mod15) # cleanup
-# z-test
-z <- summary(mod09)$coefficients/summary(mod09)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
 ```
 
-# FORWARD SELECTION 2
-Identify the second best predictive variable for cluster placement
-``` {r FS2}
-mod1.01 <- multinom(clus2 ~ chloro + sst, data = combo_mod)
-mod1.02 <- multinom(clus2 ~ chloro + sst_sd, data = combo_mod)
-mod1.03 <- multinom(clus2 ~ chloro + ssh_sd, data = combo_mod)
-mod1.04 <- multinom(clus2 ~ chloro + eke, data = combo_mod)
-mod1.05 <- multinom(clus2 ~ chloro + ild.5, data = combo_mod)
-mod1.06 <- multinom(clus2 ~ chloro + n2, data = combo_mod)
-mod1.07 <- multinom(clus2 ~ chloro + lunar, data = combo_mod)
-mod1.08 <- multinom(clus2 ~ chloro + species, data = combo_mod)
-mod1.09 <- multinom(clus2 ~ chloro + x, data = combo_mod)
-mod1.10 <- multinom(clus2 ~ chloro + y, data = combo_mod)
-mod1.11 <- multinom(clus2 ~ chloro + Year, data = combo_mod)
-mod1.12 <- multinom(clus2 ~ chloro + Month, data = combo_mod)
-
-vec_AIC <- AIC(mod1.01, mod1.02, mod1.03, mod1.04, mod1.05, mod1.06, mod1.07, mod1.08, mod1.09, mod1.10, mod1.11, mod1.12)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# Year is best predictor
-rm(mod1.01, mod1.02, mod1.03, mod1.04, mod1.05, mod1.06, mod1.07, mod1.08, mod1.10, mod1.12) # cleanup
-
-# z-test
-z <- summary(mod1.11)$coefficients/summary(mod1.11)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
+```{r correlation test}
+c.cor <- cor(combo_mod[,c(8:17)], use = "complete.obs")
+library(PerformanceAnalytics)
+chart.Correlation(combo_mod[,c(8:17)])
 ```
-
-# FORWARD SELECTION 3
-Identify the third best predictive variable for cluster placement
-``` {r FS3}
-mod1.1.01 <- multinom(clus2 ~ chloro + Year + sst, data = combo_mod)
-mod1.1.02 <- multinom(clus2 ~ chloro + Year + sst_sd, data = combo_mod)
-mod1.1.03 <- multinom(clus2 ~ chloro + Year + ssh_sd, data = combo_mod)
-mod1.1.04 <- multinom(clus2 ~ chloro + Year + eke, data = combo_mod)
-mod1.1.05 <- multinom(clus2 ~ chloro + Year + ild.5, data = combo_mod)
-mod1.1.06 <- multinom(clus2 ~ chloro + Year + n2, data = combo_mod)
-mod1.1.07 <- multinom(clus2 ~ chloro + Year + lunar, data = combo_mod)
-mod1.1.08 <- multinom(clus2 ~ chloro + Year + species, data = combo_mod)
-mod1.1.09 <- multinom(clus2 ~ chloro + Year + x, data = combo_mod)
-mod1.1.10 <- multinom(clus2 ~ chloro + Year + y, data = combo_mod)
-mod1.1.11 <- multinom(clus2 ~ chloro + Year + Month, data = combo_mod)
-
-vec_AIC <- AIC(mod1.1.01, mod1.1.02, mod1.1.03, mod1.1.04, mod1.1.05, mod1.1.06, mod1.1.07, mod1.1.08, mod1.1.09, mod1.1.10, mod1.1.11)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# Species is the next best predictor
-rm(mod1.1.01, mod1.1.02, mod1.1.03, mod1.1.04, mod1.1.05, mod1.1.06, mod1.1.07, mod1.1.09, mod1.1.10, mod1.1.11) # cleanup
-
-# z-test
-z <- summary(mod1.1.08)$coefficients/summary(mod1.1.08)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-```
-
-# FORWARD SELECTION 4
-Identify the fourth best predictive variable for cluster placement
-```{r FS4}
-mod1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + sst, data = combo_mod)
-mod1.1.1.02 <- multinom(clus2 ~ chloro + Year + species + sst_sd, data = combo_mod)
-mod1.1.1.03 <- multinom(clus2 ~ chloro + Year + species + ssh_sd, data = combo_mod)
-mod1.1.1.04 <- multinom(clus2 ~ chloro + Year + species + eke, data = combo_mod)
-mod1.1.1.05 <- multinom(clus2 ~ chloro + Year + species + ild.5, data = combo_mod)
-mod1.1.1.06 <- multinom(clus2 ~ chloro + Year + species + n2, data = combo_mod)
-mod1.1.1.07 <- multinom(clus2 ~ chloro + Year + species + lunar, data = combo_mod)
-mod1.1.1.08 <- multinom(clus2 ~ chloro + Year + species + x, data = combo_mod)
-mod1.1.1.09 <- multinom(clus2 ~ chloro + Year + species + y, data = combo_mod)
-mod1.1.1.10 <- multinom(clus2 ~ chloro + Year + species + Month, data = combo_mod)
-
-vec_AIC <- AIC(mod1.1.08, mod1.1.1.01, mod1.1.1.02, mod1.1.1.03, mod1.1.1.04, mod1.1.1.05, mod1.1.1.06, mod1.1.1.07, mod1.1.1.08, mod1.1.1.09, mod1.1.1.10)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# Latitude is best
-rm(mod1.1.1.01, mod1.1.1.02, mod1.1.1.03, mod1.1.1.04, mod1.1.1.05, mod1.1.1.06, mod1.1.1.07, mod1.1.1.08, mod1.1.1.10)
-
-# z-test
-z <- summary(mod1.1.1.09)$coefficients/summary(mod1.1.1.09)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-```
-
-# FORWARD SELECTION 5
-Identify the fifth best predictive variable for cluster placement
-```{r FS5}
-mod1.1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + y + sst_sd, data = combo_mod) 
-mod1.1.1.1.02 <- multinom(clus2 ~ chloro + Year + species + y + ssh_sd, data = combo_mod)
-mod1.1.1.1.03 <- multinom(clus2 ~ chloro + Year + species + y + eke, data = combo_mod)
-mod1.1.1.1.04 <- multinom(clus2 ~ chloro + Year + species + y + ild.5, data = combo_mod)
-mod1.1.1.1.05 <- multinom(clus2 ~ chloro + Year + species + y + n2, data = combo_mod)
-mod1.1.1.1.06 <- multinom(clus2 ~ chloro + Year + species + y + lunar, data = combo_mod)
-mod1.1.1.1.07 <- multinom(clus2 ~ chloro + Year + species + y + x, data = combo_mod)
-mod1.1.1.1.08 <- multinom(clus2 ~ chloro + Year + species + y + Month, data = combo_mod)
-  
-vec_AIC <- AIC(mod1.1.1.09, mod1.1.1.1.01, mod1.1.1.1.02, mod1.1.1.1.03, mod1.1.1.1.04, mod1.1.1.1.05, mod1.1.1.1.06, mod1.1.1.1.07, mod1.1.1.1.08)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# longitude is best
-rm(mod1.1.1.1.01, mod1.1.1.1.02, mod1.1.1.1.03, mod1.1.1.1.04, mod1.1.1.1.05, mod1.1.1.1.06, mod1.1.1.1.08)
-
-# z-test
-z <- summary(mod1.1.1.1.07)$coefficients/summary(mod1.1.1.1.07)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-```
-
-# FORWARD SELECTION 6
-Identify the sixth best predictive variable for cluster placement
-``` {r FS6}
-mod1.1.1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + y + x + sst_sd, data = combo_mod)
-mod1.1.1.1.1.02 <- multinom(clus2 ~ chloro + Year + species + y + x + ssh_sd, data = combo_mod)
-mod1.1.1.1.1.03 <- multinom(clus2 ~ chloro + Year + species + y + x + eke, data = combo_mod)
-mod1.1.1.1.1.04 <- multinom(clus2 ~ chloro + Year + species + y + x + ild.5, data = combo_mod)
-mod1.1.1.1.1.05 <- multinom(clus2 ~ chloro + Year + species + y + x + n2, data = combo_mod)
-mod1.1.1.1.1.06 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar, data = combo_mod)
-mod1.1.1.1.1.07 <- multinom(clus2 ~ chloro + Year + species + y + x + Month, data = combo_mod)
-
-vec_AIC <- AIC(mod1.1.1.1.07, mod1.1.1.1.1.01, mod1.1.1.1.1.02, mod1.1.1.1.1.03, mod1.1.1.1.1.04, mod1.1.1.1.1.05, mod1.1.1.1.1.06, mod1.1.1.1.1.07)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# Lunar illumination is the next best predictor
-rm(mod1.1.1.1.1.01, mod1.1.1.1.1.02, mod1.1.1.1.1.03, mod1.1.1.1.1.04, mod1.1.1.1.1.05, mod1.1.1.1.1.07)
-
-z <- summary(mod1.1.1.1.1.06)$coefficients/summary(mod1.1.1.1.1.06)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-```
-
-# FORWARD SELECTION 7
-Identify the seventh best predictive variable for cluster placement
-``` {r FS7}
-mod1.1.1.1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + sst_sd, data = combo_mod)
-mod1.1.1.1.1.1.02 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + ssh_sd, data = combo_mod)
-mod1.1.1.1.1.1.03 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + eke, data = combo_mod)
-mod1.1.1.1.1.1.04 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + ild.5, data = combo_mod)
-mod1.1.1.1.1.1.05 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2, data = combo_mod)
-
-vec_AIC <- AIC(mod1.1.1.1.1.06, mod1.1.1.1.1.1.01, mod1.1.1.1.1.1.02, mod1.1.1.1.1.1.03, mod1.1.1.1.1.1.04, mod1.1.1.1.1.1.05)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# n2 is the next best predictor
-rm(mod1.1.1.1.1.1.01, mod1.1.1.1.1.1.02, mod1.1.1.1.1.1.03, mod1.1.1.1.1.1.04)
-
-# z-test
-z <- summary(mod1.1.1.1.1.1.05)$coefficients/summary(mod1.1.1.1.1.1.05)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-```
-
-# FORWARD SELECTION 8
-Identify the eighth best predictive variable for cluster placement
-``` {r FS8}
-mod1.1.1.1.1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd, data = combo_mod)
-mod1.1.1.1.1.1.1.02 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + ssh_sd, data = combo_mod)
-mod1.1.1.1.1.1.1.03 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + eke, data = combo_mod)
-
-vec_AIC <- AIC(mod1.1.1.1.1.1.05, mod1.1.1.1.1.1.1.01, mod1.1.1.1.1.1.1.02, mod1.1.1.1.1.1.1.03)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# sea-surface temperature standard deviation is the next best predictor
-rm(mod1.1.1.1.1.1.1.02, mod1.1.1.1.1.1.1.03)
-
-# z-test
-z <- summary(mod1.1.1.1.1.1.1.01)$coefficients/summary(mod1.1.1.1.1.1.1.01)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-```
-
-# FORWARD SELECTION 9
-Identify the ninth best predictive variable for cluster placement
-``` {r FS9}
-mod1.1.1.1.1.1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + ssh_sd, data = combo_mod)
-mod1.1.1.1.1.1.1.1.02 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke, data = combo_mod)
-
-vec_AIC <- AIC(mod1.1.1.1.1.1.1.01, mod1.1.1.1.1.1.1.1.01, mod1.1.1.1.1.1.1.1.02)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# eke is the next best predictor
-rm(mod1.1.1.1.1.1.1.1.01)
-
-# z-test
-z <- summary(mod1.1.1.1.1.1.1.1.02)$coefficients/summary(mod1.1.1.1.1.1.1.1.02)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-```
-
-# FORWARD SELECTION 10
-Identify the tenth best predictive variable for cluster placement
-``` {r FS10}
-mod1.1.1.1.1.1.1.1.1.01 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + ssh_sd, data = combo_mod)
-
-vec_AIC <- AIC(mod1.1.1.1.1.1.1.1.02, mod1.1.1.1.1.1.1.1.1.01)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-
-# the previous model was better
-```
-
-## Including Interaction Terms
-Test the interactions between model variables, and their influence on the predictive capacity of the model 
-```{r Interactions}
-# 1: chloro:Year
-mod0.1 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:Year, data = combo_mod)
-vec_AIC <- AIC(mod1.1.1.1.1.1.1.1.02, mod0.1)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this interaction made the model worse
-
-# 2: chloro:species
-mod0.1 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species, data = combo_mod)
-vec_AIC <- AIC(mod1.1.1.1.1.1.1.1.02, mod0.1)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# This made the model better
-z <- summary(mod0.1)$coefficients/summary(mod0.1)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-
-# 3: chloro:y
-mod0.2 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y, data = combo_mod)
-vec_AIC <- AIC(mod0.1, mod0.2)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# This made the model better
-z <- summary(mod0.2)$coefficients/summary(mod0.2)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-
-# 4: chloro:x
-mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + chloro:x, data = combo_mod)
-vec_AIC <- AIC(mod0.2, mod0.3)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-# 5: chloro:lunar
-mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + chloro:lunar, data = combo_mod)
-vec_AIC <- AIC(mod0.2, mod0.3)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# 50/50 split - go for parsimony
-
-# 6: chloro:n2
-mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + chloro:n2, data = combo_mod)
-vec_AIC <- AIC(mod0.2, mod0.3)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-# 7: chloro:sst_sd
-mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + chloro:sst_sd, data = combo_mod)
-vec_AIC <- AIC(mod0.2, mod0.3)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-# 8: chloro:eke
-mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + chloro:eke, data = combo_mod)
-vec_AIC <- AIC(mod0.2, mod0.3)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-# 9: Year:species
-mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:species, data = combo_mod)
-vec_AIC <- AIC(mod0.2, mod0.3)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# 50/50 split
-
-# 10: Year:y
-mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:y, data = combo_mod)
-vec_AIC <- AIC(mod0.2, mod0.3)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# 50/50 split
-
-# 11: Year:x
-mod0.3 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x, data = combo_mod)
-vec_AIC <- AIC(mod0.2, mod0.3)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model better
-z <- summary(mod0.3)$coefficients/summary(mod0.3)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-
-# 12: Year:lunar
-mod0.4 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar, data = combo_mod)
-vec_AIC <- AIC(mod0.3, mod0.4)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-# 13: Year:n2
-mod0.4 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:n2, data = combo_mod)
-vec_AIC <- AIC(mod0.3, mod0.4)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-# 13.5: Year:sst_sd
-mod0.4 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:sst_sd, data = combo_mod)
-vec_AIC <- AIC(mod0.3, mod0.4)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-# 14: Year:eke
-mod0.4 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:eke, data = combo_mod)
-vec_AIC <- AIC(mod0.3, mod0.4)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-# 15: y:x
-mod0.4 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x, data = combo_mod)
-vec_AIC <- AIC(mod0.3, mod0.4)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model better
-z <- summary(mod0.4)$coefficients/summary(mod0.4)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-# all terms still statistically significant
-
-#16: y:lunar
-mod0.5 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + y:lunar, data = combo_mod)
-vec_AIC <- AIC(mod0.4, mod0.5)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-# 17: y:n2
-mod0.5 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + y:n2, data = combo_mod)
-vec_AIC <- AIC(mod0.4, mod0.5)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# 50/50 split
-
-#18: y:sst_sd
-mod0.5 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + y:sst_sd, data = combo_mod)
-vec_AIC <- AIC(mod0.4, mod0.5)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-#19: y:eke
-mod0.5 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + y:eke, data = combo_mod)
-vec_AIC <- AIC(mod0.4, mod0.5)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this made the model worse
-
-# 20: x:lunar
-mod0.5 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:lunar, data = combo_mod)
-vec_AIC <- AIC(mod0.4, mod0.5)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-#21: x:n2
-mod0.5 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2, data = combo_mod)
-vec_AIC <- AIC(mod0.4, mod0.5)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model better
-z <- summary(mod0.5)$coefficients/summary(mod0.5)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-# all terms still significant
-
-#22: x:sst_sd
-mod0.6 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + x:sst_sd, data = combo_mod)
-vec_AIC <- AIC(mod0.5, mod0.6)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-#23: x:eke
-mod0.6 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + x:eke, data = combo_mod)
-vec_AIC <- AIC(mod0.5, mod0.6)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-# 24: lunar:n2
-mod0.6 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:n2, data = combo_mod)
-vec_AIC <- AIC(mod0.5, mod0.6)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-# 25: lunar:sst_sd
-mod0.6 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:sst_sd, data = combo_mod)
-vec_AIC <- AIC(mod0.5, mod0.6)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-# 26: lunar:eke
-mod0.6 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke, data = combo_mod)
-vec_AIC <- AIC(mod0.5, mod0.6)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model better
-z <- summary(mod0.6)$coefficients/summary(mod0.6)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-# all terms still significant
-
-# 27: n2:sst_sd
-mod0.7 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + n2:sst_sd, data = combo_mod)
-vec_AIC <- AIC(mod0.6, mod0.7)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this made the model worse
-
-# 28: n2:eke
-mod0.7 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + n2:eke, data = combo_mod)
-vec_AIC <- AIC(mod0.6, mod0.7)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this made the model worse
-
-#29: sst_sd:eke
-mod0.7 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke, data = combo_mod)
-vec_AIC <- AIC(mod0.6, mod0.7)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this made the model worse
-
-#30: species:y
-mod0.7 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke + species:y, data = combo_mod)
-vec_AIC <- AIC(mod0.6, mod0.7)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this made the model worse
-
-#31 species:x
-mod0.7 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke + species:x, data = combo_mod)
-vec_AIC <- AIC(mod0.6, mod0.7)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this made the model worse
-
-# 32: species:lunar
-mod0.7 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke + species:lunar, data = combo_mod)
-vec_AIC <- AIC(mod0.6, mod0.7)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this made the model better
-z <- summary(mod0.7)$coefficients/summary(mod0.7)$standard.errors
-p <- (1 - pnorm(abs(z), 0, 1)) * 2
-
-# 33: species:n2
-mod0.8 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke + species:lunar + species:n2, data = combo_mod)
-vec_AIC <- AIC(mod0.7, mod0.8)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# this term made the model worse
-
-#34: species:sst_sd
-mod0.8 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke + species:lunar + species:sst_sd, data = combo_mod)
-vec_AIC <- AIC(mod0.7, mod0.8)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# 50/50
-
-#35: species:eke
-mod0.8 <- multinom(clus2 ~ chloro + Year + species + y + x + lunar + n2 + sst_sd + eke + chloro:species + chloro:y + Year:x + Year:lunar + y:x + x:n2 + lunar:eke + sst_sd:eke + species:lunar + species:eke, data = combo_mod)
-vec_AIC <- AIC(mod0.7, mod0.8)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2)) 
-AICw
-# 50/50
-
-```
-
-# The final, fixed effect multinomial logistic regression model predicting blue and mako shark cluster placement is: mod0.7 
-
-- Chlorophyll
-- Year
-- Species
-- Latitude
-- Longitude
-- Lunar illumination
-- Buoyancy frequency
-- Sea-surface temperature standard deviation
-- Eddy kinetic energy
-
-- Chlorophyll : Species
-- Chlorophyll : Latitude
-- Year : Longitude
-- Year : Lunar illumination
-- Species : Lunar illumination
-- Latitude : Longitude
-- Longitude : Buoyancy-frequency
-- Lunar illumination : Eddy kinetic energy
-- Sea-surface standard deviation : Eddy kinetic energy
 
 ## MIXED EFFECTS MODEL
 # FORWARD SELECTION 1
 Identify the best single predictive variable for cluster placement 
 ``` {r MFS1}
-m.mod01 <- mblogit(clus2 ~ sst, data = combo_mod)
-m.mod02 <- mblogit(clus2 ~ sst_sd, data = combo_mod)
-m.mod03 <- mblogit(clus2 ~ ssh, data = combo_mod)
-m.mod04 <- mblogit(clus2 ~ ssh_sd, data = combo_mod)
-m.mod05 <- mblogit(clus2 ~ eke, data = combo_mod)
-m.mod06 <- mblogit(clus2 ~ ild.5, data = combo_mod)
-m.mod07 <- mblogit(clus2 ~ n2, data = combo_mod)
-m.mod08 <- mblogit(clus2 ~ chloro, data = combo_mod)
-m.mod09 <- mblogit(clus2 ~ lunar, data = combo_mod)
-m.mod10 <- mblogit(clus2 ~ bathy, data = combo_mod)
-m.mod11 <- mblogit(clus2 ~ 1, random = ~1|species, data = combo_mod)
-mblogit(cluster ~ 1, random = ~1|species, data = df)
-m.mod12 <- mblogit(clus2 ~ x, data = combo_mod)
-m.mod13 <- mblogit(clus2 ~ y, data = combo_mod)
+m.mod01 <- mblogit(clus2 ~ sst, random = ~1|ptt, data = combo_mod)
+m.mod02 <- mblogit(clus2 ~ sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod03 <- mblogit(clus2 ~ ssh, random = ~1|ptt, data = combo_mod)
+m.mod04 <- mblogit(clus2 ~ ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod05 <- mblogit(clus2 ~ eke, random = ~1|ptt, data = combo_mod)
+m.mod06 <- mblogit(clus2 ~ ild.5, random = ~1|ptt, data = combo_mod)
+m.mod07 <- mblogit(clus2 ~ n2, random = ~1|ptt, data = combo_mod)
+m.mod08 <- mblogit(clus2 ~ chloro, random = ~1|ptt, data = combo_mod)
+m.mod09 <- mblogit(clus2 ~ lunar, random = ~1|ptt, data = combo_mod)
+m.mod10 <- mblogit(clus2 ~ depth, random = ~1|ptt, data = combo_mod)
+m.mod11 <- mblogit(clus2 ~ species, random = ~1|ptt, data = combo_mod)
 
-vec_AIC <- AIC(m.mod01, m.mod02, m.mod03, m.mod04, m.mod05, m.mod06, m.mod07, m.mod08, m.mod09, m.mod10, m.mod11, m.mod12, m.mod13)[,2]
+## RESEARCH NOTE ## : The random effect of individual dramatically improves model performance; however, species alone is a poor predictor of shark behavior. Because the random effect of individual seems to be highly influential - whether combined with species or not - I will include it in all the models (in fact, when the random effect is included alone in a model, it outperforms all the solo fixed effects terms).
+
+vec_AIC <- AIC(m.mod01, m.mod02, m.mod03, m.mod04, m.mod05, m.mod06, m.mod07, m.mod08, m.mod09, m.mod10, m.mod11)[,2]
 dAIC <- vec_AIC - min(vec_AIC)
 AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
 AICw
-# Species is best predictor
-rm(m.mod01, m.mod02, m.mod03, m.mod04, m.mod05, m.mod06, m.mod07, m.mod08, m.mod09, m.mod10, m.mod12, m.mod13) # cleanup
+# Sea-surface height is best predictor
+rm(m.mod01, m.mod02, m.mod04, m.mod05, m.mod06, m.mod07, m.mod08, m.mod09, m.mod10, m.mod11) # cleanup
 ```
 
 # FORWARD SELECTION 2
 Identify the second best single predictive variable for cluster placement 
 ``` {r MFS2}
-m.mod01.1 <- mblogit(clus2 ~ species + sst, random = ~1|ptt, data = combo_mod)
-m.mod01.2 <- mblogit(clus2 ~ species + sst_sd, random = ~1|ptt, data = combo_mod)
-m.mod01.3 <- mblogit(clus2 ~ species + ssh, random = ~1|ptt, data = combo_mod)
-m.mod01.4 <- mblogit(clus2 ~ species + ssh_sd, random = ~1|ptt, data = combo_mod)
-m.mod01.5 <- mblogit(clus2 ~ species + eke, random = ~1|ptt, data = combo_mod)
-m.mod01.6 <- mblogit(clus2 ~ species + ild.5, random = ~1|ptt, data = combo_mod)
-m.mod01.7 <- mblogit(clus2 ~ species + n2, random = ~1|ptt, data = combo_mod)
-m.mod01.8 <- mblogit(clus2 ~ species + bathy, random = ~1|ptt, data = combo_mod)
-m.mod01.9 <- mblogit(clus2 ~ species + chloro, random = ~1|ptt, data = combo_mod)
-m.mod01.10 <- mblogit(clus2 ~ species + lunar, random = ~1|ptt, data = combo_mod)
-m.mod01.11 <- mblogit(clus2 ~ species + x, random = ~1|ptt, data = combo_mod)
-m.mod01.12 <- mblogit(clus2 ~ species + y, random = ~1|ptt, data = combo_mod)
+m.mod1.1 <- mblogit(clus2 ~ ssh + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.2 <- mblogit(clus2 ~ ssh + ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.3 <- mblogit(clus2 ~ ssh + eke, random = ~1|ptt, data = combo_mod)
+m.mod1.4 <- mblogit(clus2 ~ ssh + ild.5, random = ~1|ptt, data = combo_mod)
+m.mod1.5 <- mblogit(clus2 ~ ssh + n2, random = ~1|ptt, data = combo_mod)
+m.mod1.6 <- mblogit(clus2 ~ ssh + lunar, random = ~1|ptt, data = combo_mod)
+m.mod1.7 <- mblogit(clus2 ~ ssh + species, random = ~1|ptt, data = combo_mod)
 
-vec_AIC <- AIC(m.mod01.1, m.mod01.2, m.mod01.3, m.mod01.4, m.mod01.5, m.mod01.6, m.mod01.7, m.mod01.8, m.mod01.9, m.mod01.10, m.mod01.11, m.mod01.12)[,2]
+vec_AIC <- AIC(m.mod03, m.mod1.1, m.mod1.2, m.mod1.3, m.mod1.4, m.mod1.5, m.mod1.6, m.mod1.7)[,2]
 dAIC <- vec_AIC - min(vec_AIC)
 AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
 AICw
-# Chlorophyll is best predictor
-rm(m.mod01.1, m.mod01.2, m.mod01.3, m.mod01.4, m.mod01.5, m.mod01.6, m.mod01.7, m.mod01.8, m.mod01.10, m.mod01.11, m.mod01.12) # cleanup
+# Buoyancy Frequency is the next best predictor
+rm(m.mod1.1, m.mod1.2, m.mod1.3, m.mod1.4, m.mod1.6, m.mod1.7) # cleanup
 ```
 
 # FORWARD SELECTION 3
 Identify the third best single predictive variable for cluster placement 
 ``` {r MFS3}
-m.mod1.1.01 <- mblogit(clus2 ~ species + chloro + sst_sd, random = ~1|ptt, data = combo_mod)
-m.mod1.1.02 <- mblogit(clus2 ~ species + chloro + ssh, random = ~1|ptt, data = combo_mod)
-m.mod1.1.03 <- mblogit(clus2 ~ species + chloro + ssh_sd, random = ~1|ptt, data = combo_mod)
-m.mod1.1.04 <- mblogit(clus2 ~ species + chloro + eke, random = ~1|ptt, data = combo_mod)
-m.mod1.1.05 <- mblogit(clus2 ~ species + chloro + ild.5, random = ~1|ptt, data = combo_mod)
-m.mod1.1.06 <- mblogit(clus2 ~ species + chloro + n2, random = ~1|ptt, data = combo_mod)
-m.mod1.1.07 <- mblogit(clus2 ~ species + chloro + lunar, random = ~1|ptt, data = combo_mod)
-m.mod1.1.08 <- mblogit(clus2 ~ species + chloro + x, random = ~1|ptt, data = combo_mod)
-m.mod1.1.09 <- mblogit(clus2 ~ species + chloro + y, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1 <- mblogit(clus2 ~ ssh + n2 + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.2 <- mblogit(clus2 ~ ssh + n2 + ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.3 <- mblogit(clus2 ~ ssh + n2 + eke, random = ~1|ptt, data = combo_mod)
+m.mod1.1.4 <- mblogit(clus2 ~ ssh + n2 + lunar, random = ~1|ptt, data = combo_mod)
+m.mod1.1.5 <- mblogit(clus2 ~ ssh + n2 + species, random = ~1|ptt, data = combo_mod)
 
-vec_AIC <- AIC(m.mod1.1.01, m.mod1.1.02, m.mod1.1.03, m.mod1.1.04, m.mod1.1.05, m.mod1.1.06, m.mod1.1.07, m.mod1.1.08, m.mod1.1.09)[,2]
+vec_AIC <- AIC(m.mod1.5, m.mod1.1.1, m.mod1.1.2, m.mod1.1.3, m.mod1.1.4, m.mod1.1.5)[,2]
 dAIC <- vec_AIC - min(vec_AIC)
 AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
 AICw
-# Latitude is best predictor
-rm(m.mod1.1.01, m.mod1.1.02, m.mod1.1.03, m.mod1.1.04, m.mod1.1.05, m.mod1.1.06, m.mod1.1.07, m.mod1.1.08) # cleanup
+# Lunar illumination is the next best predictor
+rm(m.mod1.1.1, m.mod1.1.2, m.mod1.1.3, m.mod1.1.5) # cleanup
 ```
 
 # FORWARD SELECTION 4
 Identify the fourth best single predictive variable for cluster placement 
 ``` {r MFS4}
-m.mod1.1.1.01 <- mblogit(clus2 ~ species + chloro + y + sst_sd, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.03 <- mblogit(clus2 ~ species + chloro + y + ssh_sd, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.04 <- mblogit(clus2 ~ species + chloro + y + eke, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.05 <- mblogit(clus2 ~ species + chloro + y + ild.5, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.06 <- mblogit(clus2 ~ species + chloro + y + n2, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.07 <- mblogit(clus2 ~ species + chloro + y + lunar, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.08 <- mblogit(clus2 ~ species + chloro + y + x, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1 <- mblogit(clus2 ~ ssh + n2 + lunar + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.2 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.3 <- mblogit(clus2 ~ ssh + n2 + lunar + eke, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.4 <- mblogit(clus2 ~ ssh + n2 + lunar + species, random = ~1|ptt, data = combo_mod)
 
-vec_AIC <- AIC(m.mod1.1.1.01, m.mod1.1.1.03, m.mod1.1.1.04, m.mod1.1.1.05, m.mod1.1.1.06, m.mod1.1.1.08)[,2]
+vec_AIC <- AIC(m.mod1.1.4, m.mod1.1.1.1, m.mod1.1.1.2, m.mod1.1.1.3, m.mod1.1.1.4)[,2]
 dAIC <- vec_AIC - min(vec_AIC)
 AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
 AICw
-# Lunar illumination is best predictor
-rm(m.mod1.1.1.01, m.mod1.1.1.03, m.mod1.1.1.04, m.mod1.1.1.05, m.mod1.1.1.06, m.mod1.1.1.08) # cleanup
+# Sea-surface height standard deviation is best predictor
+summary(m.mod1.1.1.2)
+rm(m.mod1.1.1.1, m.mod1.1.1.3, m.mod1.1.1.4) # cleanup
 ```
 
 # FORWARD SELECTION 5
 Identify the fifth best single predictive variable for cluster placement 
 ``` {r MFS5}
-m.mod1.1.1.1.01 <- mblogit(clus2 ~ species + chloro + y + lunar + sst_sd, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.1.02 <- mblogit(clus2 ~ species + chloro + y + lunar + ssh_sd, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.1.03 <- mblogit(clus2 ~ species + chloro + y + lunar + eke, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.1.04 <- mblogit(clus2 ~ species + chloro + y + lunar + ild.5, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.1.05 <- mblogit(clus2 ~ species + chloro + y + lunar + n2, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.1.06 <- mblogit(clus2 ~ species + chloro + y + lunar + x, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1.1 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1.2 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + species, random = ~1|ptt, data = combo_mod)
 
-
-vec_AIC <- AIC(m.mod1.1.1.07, m.mod1.1.1.1.01, m.mod1.1.1.1.02, m.mod1.1.1.1.03, m.mod1.1.1.1.04, m.mod1.1.1.1.05, m.mod1.1.1.1.06)[,2]
+vec_AIC <- AIC(m.mod1.1.1.2, m.mod1.1.1.1.1, m.mod1.1.1.1.2)[,2]
 dAIC <- vec_AIC - min(vec_AIC)
 AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
 AICw
-# n2 is best predictor
-rm(m.mod1.1.1.1.01, m.mod1.1.1.1.02, m.mod1.1.1.1.03, m.mod1.1.1.1.04, m.mod1.1.1.1.06) # cleanup
-```
-
-# FORWARD SELECTION 6
-Identify the sixth best single predictive variable for cluster placement 
-``` {r MFS6}
-m.mod1.1.1.1.1.01 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + sst_sd, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.1.1.02 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + ssh_sd, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.1.1.03 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.1.1.04 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + x, random = ~1|ptt, data = combo_mod)
-
-
-vec_AIC <- AIC(m.mod1.1.1.1.05, m.mod1.1.1.1.1.01, m.mod1.1.1.1.1.02, m.mod1.1.1.1.1.03, m.mod1.1.1.1.1.04)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# eke is best predictor
-rm(m.mod1.1.1.1.1.01, m.mod1.1.1.1.1.02, m.mod1.1.1.1.1.04) # cleanup
-```
-
-# FORWARD SELECTION 7
-Identify the seventh best single predictive variable for cluster placement 
-``` {r MFS7}
-m.mod1.1.1.1.1.1.01 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd, random = ~1|ptt, data = combo_mod)
-m.mod1.1.1.1.1.1.02 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + x, random = ~1|ptt, data = combo_mod)
-
-
-vec_AIC <- AIC(m.mod1.1.1.1.1.03, m.mod1.1.1.1.1.1.01, m.mod1.1.1.1.1.1.02)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# sst_sd is best predictor
-rm(m.mod1.1.1.1.1.1.02) # cleanup
-```
-
-# FORWARD SELECTION 8
-Identify the eighth best single predictive variable for cluster placement 
-``` {r MFS8}
-m.mod1.1.1.1.1.1.1.01 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + x, random = ~1|ptt, data = combo_mod)
-
-vec_AIC <- AIC(m.mod1.1.1.1.1.1.01, m.mod1.1.1.1.1.1.1.01)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# previous model was better
-rm(m.mod1.1.1.1.1.1.1.01) # cleanup
+# the previous iteration is most likely the best model
+summary(m.mod1.1.1.1.2)
+rm(m.mod1.1.1.1.1, m.mod1.1.1.1.2) # cleanup
 ```
 
 # M.E. Including Interaction Terms
 ```{r ME Interactions}
-# 1. species:chloro
-m.mod0.1 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod1.1.1.1.1.1.01, m.mod0.1)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction made the model better
+# 1.
+m.mod0.1 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:n2, random = ~1|ptt, data = combo_mod)
+m.mod0.2 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar, random = ~1|ptt, data = combo_mod)
+m.mod0.3 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod0.4 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + n2:lunar, random = ~1|ptt, data = combo_mod)
+m.mod0.5 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + n2:ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod0.6 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + lunar:ssh_sd, random = ~1|ptt, data = combo_mod)
 
-# 2. species:y
-m.mod0.2 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.1, m.mod0.2)[,2]
+vec_AIC <- AIC(m.mod1.1.1.2, m.mod0.1, m.mod0.2, m.mod0.3, m.mod0.4, m.mod0.5, m.mod0.6)[,2]
 dAIC <- vec_AIC - min(vec_AIC)
 AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
 AICw
-# this interaction made the model better
+# interaction 2 is marginally best but substantially better than the original model
+summary(m.mod0.2)
+rm( m.mod0.1, m.mod0.3, m.mod0.4, m.mod0.5, m.mod0.6)
 
-# 3. species:lunar
-m.mod0.3 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.2, m.mod0.3)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction made the model better
+# 2. 
+m.mod0.2.1 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:n2, random = ~1|ptt, data = combo_mod)
+m.mod0.2.2 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod0.2.3 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + n2:lunar, random = ~1|ptt, data = combo_mod)
+m.mod0.2.4 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + n2:ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod0.2.5 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh_sd:lunar, random = ~1|ptt, data = combo_mod)
 
-# 4. species:n2
-m.mod0.4 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + species:n2, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.3, m.mod0.4)[,2]
+vec_AIC <- AIC(m.mod0.2, m.mod0.2.1, m.mod0.2.2, m.mod0.2.3, m.mod0.2.4, m.mod0.2.5)[,2]
 dAIC <- vec_AIC - min(vec_AIC)
 AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
 AICw
-# this interaction did not improve model
 
-# 5. species:eke
-m.mod0.4 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + species:eke, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.3, m.mod0.4)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model
+# interaction 1 is far and away the best
+summary(m.mod0.2.1)
+rm(m.mod0.2.2, m.mod0.2.3, m.mod0.2.4, m.mod0.2.5)
 
-# 6. species:sst_sd
-m.mod0.4 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + species:sst_sd, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.3, m.mod0.4)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model
+# 3. 
+m.mod0.2.1.1 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:n2 + ssh:ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod0.2.1.2 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:n2 + n2:lunar, random = ~1|ptt, data = combo_mod)
+m.mod0.2.1.3 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:n2 + n2:ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod0.2.1.4 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:n2 + lunar:ssh_sd, random = ~1|ptt, data = combo_mod)
 
-# 7. chloro:y
-m.mod0.4 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.3, m.mod0.4)[,2]
+vec_AIC <- AIC(m.mod0.2.1, m.mod0.2.1.1, m.mod0.2.1.2, m.mod0.2.1.3, m.mod0.2.1.4)[,2]
 dAIC <- vec_AIC - min(vec_AIC)
 AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
 AICw
-# this interaction did improve model
-
-# 8. chloro:lunar
-m.mod0.5 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + chloro:lunar, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.4, m.mod0.5)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model
-
-# 9. chloro:n2
-m.mod0.5 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + chloro:n2, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.4, m.mod0.5)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model
-
-# 10. chloro:eke
-m.mod0.5 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + chloro:eke, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.4, m.mod0.5)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model
-
-# 11. chloro:sst_sd
-m.mod0.5 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + chloro:sst_sd, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.4, m.mod0.5)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model\
-
-# 12. y:lunar
-m.mod0.5 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.4, m.mod0.5)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did improve model
-
-# 13. y:n2
-m.mod0.6 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.5, m.mod0.6)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did improve model
-
-# 14. y:eke
-m.mod0.7 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + y:eke, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.6, m.mod0.7)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model
-
-# 15. y:sst_sd
-m.mod0.7 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + y:sst_sd, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.6, m.mod0.7)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model
-
-# 16. lunar:n2
-m.mod0.7 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + lunar:n2, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.6, m.mod0.7)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model
-
-# 17. lunar:eke
-m.mod0.7 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + lunar:eke, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.6, m.mod0.7)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model
-
-# 18. lunar:sst_sd
-m.mod0.7 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + lunar:sst_sd, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.6, m.mod0.7)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model
-
-# 19. n2:eke
-m.mod0.7 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + n2:eke, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.6, m.mod0.7)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did improve model
-
-# 20. n2:sst_sd
-m.mod0.8 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + n2:eke + n2:sst_sd, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.7, m.mod0.8)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model
-
-# 21. eke:sst_sd
-m.mod0.9 <- mblogit(clus2 ~ species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + n2:eke + eke:sst_sd, random = ~1|ptt, data = combo_mod)
-vec_AIC <- AIC(m.mod0.7, m.mod0.9)[,2]
-dAIC <- vec_AIC - min(vec_AIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
-AICw
-# this interaction did not improve model
+# interaction 4 is the best
+summary(m.mod0.2.1.4)
+# however, adding this variable makes ssh_sd insignificant - stopping at the previous itteration
 ```
 
-# The mixed effet multinomial logistic regression model predicting blue and mako shark cluster placement is: m.mod0.7 
+# The mixed effet multinomial logistic regression model predicting blue and mako shark cluster placement is: 
+m.mod0.2.1
 
-species + chloro + y + lunar + n2 + eke + sst_sd + species:chloro + species:y + species:lunar + chloro:y + y:lunar + y:n2 + n2:eke, random = ~1|ptt
+mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:n2, random = ~1|ptt, data = combo_mod)
 
-Species
-Primary Productivity
-Latitude
-Lunar
-n2
-Eddy Kinetic Energy
-Sea-surface temperature standard deviation
+FIXED VARIABLES:
+- Sea-surface Height
+- Buoyancy Frequency
+- Lunar Illumination
+- Sea-surface Height Standard Deviation
 
-Species : Primary Productivity
-Species : Latitude
-Species : Lunar Illumination
-Primary Productivity : Latitude
-Latitude : Lunar Illumination
-Latitude : Buoyancy Frequency
-Buoyancy Frequency : Eddy Kinetic Energy
+INTERACTIONS:
+- Sea-surface Height : Lunar Illum. 
+(sharks may rely on eddies more during full moons when scattering layers are deeper)
+- Sea-surface Height : Buoyancy Freq. 
+(sharks may not rely on eddies as much in regions where the water is well mixed)
 
+RANDOM VARIABLES:
+- Individual
 
 # Examining Model Results
 Lets consider how the probability of each cluster changes with each individual predictor while holding the other model variables at their mean values
-```{r chloro}
-# Chlorophyll
-p_chloro <- data.frame(
-  chloro = rep(seq(0,6.5, 0.1), times = 8), 
-  species = as.factor(rep(c("I. oxyrinchus", "P. glauca"), each = 264)),
-  y = rep(c(15, 45, 15, 45), each = 132),
-  lunar = as.factor(rep(c(1,2,1,2), times = 132)),
-  n2 = rep(c(6.427669e-05), times = 528),
-  sst_sd = rep(c(0.2973896), times = 528),
-  eke = rep( c(-1.315512), times = 528),
-  ptt = as.factor(rep(c("78683", "106754"), each = 264))
+```{r model results}
+# Sea-surface height
+low <- data.frame(
+  ssh = rep(seq(-1,1, 0.025), times = 34), 
+  lunar = as.factor(rep(rep(c(1,2), each = 81), times = 17)),
+  n2 = rep(c(1.491943e-05), times = 2754),
+  ssh_sd = rep(c(0.02605838), times = 2754),
+  
+  ptt = as.factor(rep(c("106754", "133016", "133017", "133018", "133021", "141247", "141254", "141255", "141256", "141257", "141258", "141259", "154096", "163096", "163097", "163098", "206771"), each = 162))
+  )
+high <- data.frame(
+  ssh = rep(seq(-1,1, 0.025), times = 34), 
+  lunar = as.factor(rep(rep(c(1,2), each = 81), times = 17)),
+  n2 = rep(c(7.460897e-05), times = 2754),
+  ssh_sd = rep(c(0.02605838), times = 2754),
+  
+  ptt = as.factor(rep(c("106754", "133016", "133017", "133018", "133021", "141247", "141254", "141255", "141256", "141257", "141258", "141259", "154096", "163096", "163097", "163098", "206771"), each = 162))
   )
 
-p_chloro <- cbind(p_chloro, predict(m.mod0.7, newdata = p_chloro, type = "response", se.fit = FALSE))
-lchloro <- melt(p_chloro, id.vars = c("species", "chloro", "y", "lunar", "n2", "sst_sd", "eke", "ptt"), measure.vars = c("3", "1", "2", "4", "5", "6", "7"))
-lchloro$y <- factor(lchloro$y) 
+p_ssh <- rbind(low, high)
+rm(low, high)
+p_ssh <- cbind(p_ssh, predict(m.mod0.2.1, newdata = p_ssh, type = "response", se.fit = FALSE))
+lssh <- melt(p_ssh, id.vars = c("ssh", "lunar", "n2", "ssh_sd", "ptt"), measure.vars = c("1", "2", "3", "4", "5"))
+lssh$lunar <- factor(lssh$lunar)
+lssh$n2 <- factor(lssh$n2)
+species_stmp$ptt <- factor(species_stmp$ptt)
+lssh <- left_join(lssh, species_stmp)
 
-lchloro <- filter(lchloro, lunar == 1)
+op1.1 <- lssh %>% filter(lunar == 1 & n2 == 1.491943e-05)
+op1.2 <- lssh %>% filter(lunar == 1 & n2 == 7.460897e-05)
+op2.1 <- lssh %>% filter(lunar == 2 & n2 == 1.491943e-05)
+op2.2 <- lssh %>% filter(lunar == 2 & n2 == 7.460897e-05)
 
-ggplot(data = lchloro) +
-  geom_line(aes(x = chloro, y = value, color = variable, linetype = y)) +
-  facet_grid(species ~ y)
+op1.1 <- op1.1 %>% group_by(lunar, n2, ssh, variable, species) %>% summarize(LL = min(value), UL = max(value), value = mean(value))
+op1.2 <- op1.2 %>% group_by(lunar, n2, ssh, variable, species) %>% summarize(LL = min(value), UL = max(value), value = mean(value))
+op2.1 <- op2.1 %>% group_by(lunar, n2, ssh, variable, species) %>% summarize(LL = min(value), UL = max(value), value = mean(value))
+op2.2 <- op2.2 %>% group_by(lunar, n2, ssh, variable, species) %>% summarize(LL = min(value), UL = max(value), value = mean(value))
+
+opall <- rbind(op1.1, op1.2, op2.1, op2.2)
+opall$lunar <- factor(opall$lunar)
+opall$n2 <- factor(opall$n2)
+rm(op1.1, op1.2, op2.1, op2.2)
+
+ggplot(data = filter(lssh, species == "I.oxyrinchus")) + # plot relationships for makos
+  geom_line(data = filter(opall, species == "I.oxyrinchus"), aes(x = ssh, y = value, color = variable), alpha = 1.2) +
+  geom_path(aes(x = ssh, y = value, color = variable), alpha = 0.15) +
+  facet_grid(lunar~n2) + 
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+
+ggplot(data = filter(lssh, species == "P.glauca")) + # plot relationships for blues
+  geom_line(data = filter(opall, species == "P.glauca"), aes(x = ssh, y = value, color = variable), alpha = 1.2) +
+  geom_path(aes(x = ssh, y = value, color = variable), alpha = 0.15) +
+  facet_grid(lunar~n2) + 
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+
+# Buoyancy Frequency
+p_n2 <- data.frame(
+  ssh = rep(c(-0.1339259), times = 34034), 
+  lunar = as.factor(rep(rep(c(1,2), each = 1001), times = 17)),
+  n2 = rep(seq(0,0.0005, 0.0000005), times = 34),
+  ssh_sd = rep(c(0.02605838), times = 34034),
+  ptt = as.factor(rep(c("106754", "133016", "133017", "133018", "133021", "141247", "141254", "141255", "141256", "141257", "141258", "141259", "154096", "163096", "163097", "163098", "206771"), each = 2002))
+  )
+
+p_n2 <- cbind(p_n2, predict(m.mod0.2.1, newdata = p_n2, type = "response", se.fit = FALSE))
+ln2 <- melt(p_n2, id.vars = c("ssh", "lunar", "n2", "ssh_sd", "ptt"), measure.vars = c("1", "2", "3", "4", "5"))
+ln2 <- ln2 %>% filter(lunar == 1) 
+ln2 <- left_join(ln2, species_stmp)
+
+opall <- ln2 %>% group_by(n2, variable, species) %>% summarize(LL = min(value), UL = max(value), value = mean(value))
+
+ggplot(data = filter(ln2, species == "I.oxyrinchus")) + # plot relationships for makos
+  geom_line(data = filter(opall, species == "I.oxyrinchus"), aes(x = n2, y = value, color = variable), alpha = 1.2) +
+  geom_path(aes(x = n2, y = value, color = variable), alpha = 0.15) +
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+
+ggplot(data = filter(ln2, species == "P.glauca")) + # plot relationships for makos
+  geom_line(data = filter(opall, species == "P.glauca"), aes(x = n2, y = value, color = variable), alpha = 1.2) +
+  geom_path(aes(x = n2, y = value, color = variable), alpha = 0.15) +
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+
+# Lunar Illumination
+p_lunar <- data.frame(
+  ssh = rep(c(-0.1339259), times = 34), 
+  lunar = as.factor(rep(rep(c(1,2), each = 1), times = 17)),
+  n2 = rep(c(3.155192e-05), times = 34),
+  ssh_sd = rep(c(0.02605838), times = 34),
+  ptt = as.factor(rep(c("106754", "133016", "133017", "133018", "133021", "141247", "141254", "141255", "141256", "141257", "141258", "141259", "154096", "163096", "163097", "163098", "206771"), each = 2))
+  )
+
+p_lunar <- cbind(p_lunar, predict(m.mod0.2.1, newdata = p_lunar, type = "response", se.fit = FALSE))
+llunar <- melt(p_lunar, id.vars = c("ssh", "lunar", "n2", "ssh_sd", "ptt"), measure.vars = c("1", "2", "3", "4", "5"))
+llunar$lunar <- factor(llunar$lunar)
+llunar <- left_join(llunar, species_stmp)
+
+llunar <- llunar %>% group_by(lunar, variable, species) %>% summarize(LL = min(value), UL = max(value), Mea = mean(value))
+
+ggplot(data = filter(llunar, species == "I.oxyrinchus")) + # plot relationships for makos
+  geom_errorbar(aes(x = variable, ymin = LL, ymax = UL, color = variable)) +
+  geom_point(aes(x = variable, y = Mea, color = variable), fill = "white") +
+  facet_wrap(~lunar) +
+  scale_x_discrete(labels = c()) +
+  scale_y_continuous(limits = c(0,1), breaks = c(0, 0.25, 0.5, 0.75, 1), labels = c(0, 0.25, 0.5, 0.75, 1)) +
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+
+ggplot(data = filter(llunar, species == "P.glauca")) + # plot relationships for makos
+  geom_errorbar(aes(x = variable, ymin = LL, ymax = UL, color = variable)) +
+  geom_point(aes(x = variable, y = Mea, color = variable), fill = "white") +
+  facet_wrap(~lunar) +
+  scale_x_discrete(labels = c()) +
+  scale_y_continuous(limits = c(0,1), breaks = c(0, 0.25, 0.5, 0.75, 1), labels = c(0, 0.25, 0.5, 0.75, 1)) +
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+
+# Sea-surface Height Standard Deviation
+p_sshsd <- data.frame(
+  ssh = rep(c(-0.1339259), times = 10234), 
+  lunar = as.factor(rep(rep(c(1,2), each = 301), times = 17)),
+  n2 = rep(c(3.155192e-05), times = 10234),
+  ssh_sd = rep(seq(0,0.15, 0.0005), times = 34),
+  ptt = as.factor(rep(c("106754", "133016", "133017", "133018", "133021", "141247", "141254", "141255", "141256", "141257", "141258", "141259", "154096", "163096", "163097", "163098", "206771"), each = 602))
+  )
+
+p_sshsd <- cbind(p_sshsd, predict(m.mod0.2.1, newdata = p_sshsd, type = "response", se.fit = FALSE))
+lsshsd <- melt(p_sshsd, id.vars = c("ssh", "lunar", "n2", "ssh_sd", "ptt"), measure.vars = c("1", "2", "3", "4", "5"))
+lsshsd <- lsshsd %>% filter(lunar == 1) 
+lsshsd <- left_join(lsshsd, species_stmp)
+
+opall <- lsshsd %>% group_by(ssh_sd, variable, species) %>% summarize(LL = min(value), UL = max(value), value = mean(value))
+
+ggplot(data = filter(lsshsd, species == "I.oxyrinchus")) + # plot relationships for makos
+  geom_line(data = filter(opall, species == "I.oxyrinchus"), aes(x = ssh_sd, y = value, color = variable), alpha = 1.2) +
+  geom_path(aes(x = ssh_sd, y = value, color = variable), alpha = 0.15) +
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+
+ggplot(data = filter(lsshsd, species == "P.glauca")) + # plot relationships for makos
+  geom_line(data = filter(opall, species == "P.glauca"), aes(x = ssh_sd, y = value, color = variable), alpha = 1.2) +
+  geom_path(aes(x = ssh_sd, y = value, color = variable), alpha = 0.15) +
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
 ```
 
 ```{r n2}
