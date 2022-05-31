@@ -433,6 +433,39 @@ bseries_12 <- bseries_12[,-4]
 blue_series <- rbind(bseries_1, bseries_2, bseries_3, bseries_4, bseries_5, bseries_6, bseries_7, bseries_8, bseries_9, bseries_10, bseries_11, bseries_12, bseries_13)
 ```
 
+```{r summary statistics}
+toDelete <- c(seq(0,nrow(mseries_7), 2))
+mseries_7.short <- mseries_7[-toDelete,]
+rm(toDelete)
+
+mako_series <- rbind(mseries_4, mseries_5, mseries_6, mseries_7.short)
+combo_series <- rbind(mako_series, blue_series)
+
+combo_series <- inner_join(combo_series, bathy_stamp)
+test <- filter(combo_series, bathy > -1000)
+unique(test$kode) # 367 tracking days in total occured over the continental shelf
+
+# filter out tracking days with less than 75% of their data
+complete0.5 <- combo_series %>% group_by(ptt) %>% count(Date) # there are 1992 total tracking days with series data
+complete0.5 <- complete0.5 %>% filter(n >= 280) # there are 1249 tracking days with more than 50% of their series data
+
+combo_series <- left_join(combo_series, complete0.5, by = c("Date", "ptt"))
+combo_series <- combo_series %>% filter(!is.na(n))
+
+# average maximum depth by species
+max.depth <- combo_series %>% group_by(species) %>% summarize(max = max(depth))
+max.depth <- combo_series %>% group_by(species, kode) %>% summarize(max = max(depth))
+max.depth <- max.depth %>% group_by(species) %>% summarize(mean = mean(max))
+
+# temperature data
+test <- inner_join(pdt, complete0.5)
+summary(test$temperature)
+
+test <- inner_join(pdtb, complete0.5)
+summary(test$temperature)
+
+```
+
 # GENERAL VERTICAL HABITAT FIGURE
 The goal here is to try and make a figure that shows the series track over a large swath of deployment time for a single individual blue and mako shark. This figure should capture a variety of behavior types in a variety of vertical habitats (ie. shelf, slope, plains):
 ``` {r series general vert. habitat: blues}
@@ -474,13 +507,14 @@ main.b <- ggplot(data = b_series) +
   geom_point(aes(x = DateTime_local, y = depth, color = temperature)) +
   scale_color_cmocean(name = "thermal", limits = c(5,30)) +
   geom_line(aes(x = DateTime_local, y = ild.5), color = "grey22", alpha = 0.8, size = 1.5) +
-  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = 200, ymax = 1000), color = "grey33", alpha = 0.4) +
+  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = 200, ymax = 1000), color = "black", fill = "NA", alpha = 0.4) +
   ylab("Depth (m)") +
   xlab("Month") +
   scale_y_reverse(limits = c(1000, 0)) +
   theme_classic() +
-  guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
-  theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+  theme(legend.position = "none")
+  #guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
+  #theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
 
 # cumulative time-at-depth sub-plot (1)
 blue.cm.depth <- blue_series %>% group_by(dn) %>% count(depth)
@@ -504,7 +538,7 @@ blue.bin.depth$bin <- cut(blue.bin.depth$depth, breaks = bins, labels = c(seq(1:
 
 blue.bin.depth <- blue.bin.depth %>% count(bin, .drop = FALSE)
 blue.bin.depth <- blue.bin.depth %>% mutate(tot = sum(n))
-blue.bin.depth <- blue.bin.depth %>% filter(tot >= 190)
+blue.bin.depth <- blue.bin.depth %>% filter(tot >= 144)
 blue.bin.depth <- blue.bin.depth %>% mutate(perc = (n / tot)*100)
 
 blue.bin.depth <- ungroup(blue.bin.depth) %>% group_by(ptt, dn, bin) %>% summarize(m = mean(perc))
@@ -520,11 +554,13 @@ sub.b <- ggplot() +
   geom_col(data = filter(blue.bin.depth, dn == "n"), aes(x = bin, y = perc), width = 1, fill = "grey", color= "black") +
   geom_errorbar(data = filter(blue.bin.depth, dn == "n"), aes(x = bin, ymin = (perc), ymax = (perc+se)), width = 0.5, color = "black", alpha = 0.6) +
   scale_x_reverse(breaks = c(0, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100","200","300", "400", "500", "2000")) +
-  scale_y_continuous(limits = c(-60,60), breaks = c(-60,-50,-40,-30,-20,-10, 0,10,20,30,40,50,60), labels = c(60,50,40,30,20,10,0,10,20,30,40,50,60), position = "right") +
+  scale_y_continuous(limits = c(-60,60), breaks = c(-60,-40,-20, 0,20,40,60), labels = c(60,40,20,0,20,40,60), position = "right") +
   xlab("Depth (m)") +
   ylab("Time at Depth (%)") +
   coord_flip() +
-  theme_classic() 
+  theme_classic() + 
+  theme(plot.margin = unit(rep(0, 4), "cm"))
+
 
 #A viewport taking up a fraction of the plot area
 library(grid)
@@ -569,10 +605,11 @@ main.m <- ggplot(data = m_series) +
   geom_point(aes(x = DateTime_local, y = depth, color = temperature)) +
   scale_color_cmocean(name = "thermal", limits = c(5,30)) +
   geom_line(aes(x = DateTime_local, y = ild.5), color = "grey22", alpha = 0.8, size = 1.5) +
-  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = 200, ymax = 1000), color = "grey33", alpha = 0.4) +
+  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = 200, ymax = 1000), color = "black", fill = NA, alpha = 0.4) +
   ylab("Depth (m)") +
   xlab("Month") +
   scale_y_reverse(limits = c(1000, 0)) +
+  scale_x_continuous(breaks = breaks, labels = c("Nov", "Dec", "Jan")) +
   theme_classic() +
   guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
   theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
@@ -609,7 +646,7 @@ mako.bin.depth$bin <- cut(mako.bin.depth$depth, breaks = bins, labels = c(seq(1:
 
 mako.bin.depth <- mako.bin.depth %>% count(bin, .drop = FALSE)
 mako.bin.depth <- mako.bin.depth %>% mutate(tot = sum(n))
-mako.bin.depth <- mako.bin.depth %>% filter(tot >= 190)
+mako.bin.depth <- mako.bin.depth %>% filter(tot >= 144) # 144 because half of 288 (half of the whole day)
 mako.bin.depth <- mako.bin.depth %>% mutate(perc = (n / tot)*100)
 
 mako.bin.depth <- ungroup(mako.bin.depth) %>% group_by(ptt, dn, bin) %>% summarize(m = mean(perc))
@@ -625,8 +662,8 @@ sub.m <- ggplot() +
   geom_col(data = filter(mako.bin.depth, dn == "n"), aes(x = bin, y = perc), width = 1, fill = "grey", color= "black") +
   geom_errorbar(data = filter(mako.bin.depth, dn == "n"), aes(x = bin, ymin = (perc), ymax = (perc+se)), width = 0.5, color = "black", alpha = 0.6) +
   scale_x_reverse(breaks = c(0, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100","200","300", "400", "500", "2000")) +
-  scale_y_continuous(limits = c(-60,60), breaks = c(-60,-50,-40,-30,-20,-10, 0,10,20,30,40,50,60), labels = c(60,50,40,30,20,10,0,10,20,30,40,50,60), position = "right") +
-  xlab("") +
+  scale_y_continuous(limits = c(-60,60), breaks = c(-60,-40,-20, 0,20,40,60), labels = c(60,40,20,0,20,40,60), position = "right") +
+  xlab("Depth (m)") +
   ylab("Time at Depth (%)") +
   coord_flip() +
   theme_classic() +
@@ -640,7 +677,7 @@ print(sub.m, vp = vp.m)
 dev.off()
 ```
 
-# Tagging location map
+# TAGGING LOCATION MAP
 ``` {r Tagging locations and track maps}
 # makos
 for(i in 1:length(makos)) {
@@ -685,12 +722,14 @@ r_df <- r_df %>% filter(Elevation.relative.to.sea.level < 0)
 hue_pal()(2)
 
 ggplot(data = r_df) +
-  geom_raster(aes(x = x, y = y, fill = Elevation.relative.to.sea.level), show.legend = FALSE) +
-  geom_contour(aes(x = x, y = y, z = Elevation.relative.to.sea.level), color = "white", breaks = c(-200, -1000)) +
+  geom_sf(data = world) + 
+  #geom_raster(aes(x = x, y = y, fill = Elevation.relative.to.sea.level), show.legend = FALSE) +
+  geom_contour(aes(x = x, y = y, z = Elevation.relative.to.sea.level), color = "black", breaks = c(-1000)) +
   scale_fill_gradient(low = "black", high = "grey") +
   scale_x_continuous(minor_breaks = c(-70, -50, -30, -10)) +
   scale_y_continuous(minor_breaks = c(15, 25, 35, 45, 55)) +
-  coord_quickmap() +
+  coord_sf(xlim = c(-80, -10), ylim = c(5, 50)) +
+  #coord_quickmap() +
   
   geom_path(data = btrack_1, aes(longitude, latitude), color = "#00BFC4") +
   geom_path(data = btrack_2, aes(longitude, latitude), color = "#00BFC4") +
@@ -734,27 +773,27 @@ ggplot(data = r_df) +
   geom_point(data = btrack_12[nrow(btrack_12),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
   geom_point(data = btrack_13[nrow(btrack_13),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
   
-  geom_path(data = mtrack_1, aes(longitude, latitude), color = "#F8766D") +
-  geom_path(data = mtrack_2, aes(longitude, latitude), color = "#F8766D") +
-  geom_path(data = mtrack_3, aes(longitude, latitude), color = "#F8766D") +
+  #geom_path(data = mtrack_1, aes(longitude, latitude), color = "#F8766D") +
+  #geom_path(data = mtrack_2, aes(longitude, latitude), color = "#F8766D") +
+  #geom_path(data = mtrack_3, aes(longitude, latitude), color = "#F8766D") +
   geom_path(data = mtrack_4, aes(longitude, latitude), color = "#F8766D") +
   geom_path(data = mtrack_5, aes(longitude, latitude), color = "#F8766D") +
   geom_path(data = mtrack_6, aes(longitude, latitude), color = "#F8766D") +
   geom_path(data = mtrack_7, aes(longitude, latitude), color = "#F8766D") +
 
   
-  geom_point(data = mtrack_1[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
-  geom_point(data = mtrack_2[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
-  geom_point(data = mtrack_3[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  #geom_point(data = mtrack_1[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  #geom_point(data = mtrack_2[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  #geom_point(data = mtrack_3[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
   geom_point(data = mtrack_4[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
   geom_point(data = mtrack_5[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
   geom_point(data = mtrack_6[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) +
   geom_point(data = mtrack_7[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) +
 
   
-  geom_point(data = mtrack_1[nrow(mtrack_1),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
-  geom_point(data = mtrack_2[nrow(mtrack_2),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
-  geom_point(data = mtrack_3[nrow(mtrack_3),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  #geom_point(data = mtrack_1[nrow(mtrack_1),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  #geom_point(data = mtrack_2[nrow(mtrack_2),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  #geom_point(data = mtrack_3[nrow(mtrack_3),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
   geom_point(data = mtrack_4[nrow(mtrack_4),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
   geom_point(data = mtrack_5[nrow(mtrack_5),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
   geom_point(data = mtrack_6[nrow(mtrack_6),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
@@ -766,6 +805,64 @@ ggplot(data = r_df) +
   theme_linedraw() +
   theme(element_blank())
 ```
+# making map of % mesopelagic occupancy in a gridded raster
+See this youtube video for a helpful tutorial: https://www.youtube.com/watch?v=_bzqAuBnOag 
+``` {r % meso depth map}
+e <- extent(c(-80, -30, 5, 50))
+crs <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0")
+r <- raster(nrow = 50, ncol = 50, ext = e, crs = crs)
+p <- as(r@extent, 'SpatialPolygons')
+
+combo_series$meso <- cut(combo_series$depth, breaks = c(0, 200, 2000), labels = c(1,2), include.lowest = TRUE, right = FALSE)
+
+test <- combo_series %>% group_by(kode) %>% count(meso, .drop = FALSE)
+test <- test %>% group_by(kode) %>% mutate(tot = sum(n), perc = (n/tot) * 100)
+test <- filter(test, meso == 2)
+test <- test %>% dplyr::select(c("kode", "tot", "perc"))
+dive.stmp <- test %>% rename(meso = perc)
+
+combo_track <- left_join(combo_track, dive.stmp, by = c("kode"))
+
+mako_tracks <- filter(combo_track, species == "I.oxyrinchus")
+blue_tracks <- filter(combo_track, species == "P.glauca")
+
+makor <- raster::rasterize(mako_tracks[,c(5,3)], r, mako_tracks$meso, fun = mean)
+bluer <- raster::rasterize(blue_tracks[,c(5,3)], r, blue_tracks$meso, fun = mean)
+
+makor_df <- as.data.frame(makor, xy = TRUE)
+makor_df <- filter(makor_df, !is.na(layer))
+
+bluer_df <- as.data.frame(bluer, xy = TRUE)
+bluer_df <- filter(bluer_df, !is.na(layer))
+
+ggplot(data = makor_df) +
+  geom_tile(aes(x = x, y = y, fill = layer), color = "black") +
+  geom_sf(data = world) +
+  scale_fill_cmocean(name = "deep") +
+  #scale_fill_cmocean(name = "deep", limits = c(0, 100), breaks = c(20, 40, 60, 80), labels = c(20, 40, 60, 80)) +
+  coord_sf(xlim = c(-80, -30), ylim = c(10, 45)) +
+  #guides(fill=guide_colorbar(title="Mesopelagic (%)", direction = "horizontal")) +
+  theme_linedraw() +
+  xlab("")+
+  ylab("") +
+  theme(legend.position = "none")
+  #theme(legend.position = c(0.80, 0.085), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+
+ggplot(data = bluer_df) +
+  geom_tile(aes(x = x, y = y, fill = layer), color = "black") +
+  geom_sf(data = world) +
+  scale_fill_cmocean(name = "deep") +
+  #scale_fill_cmocean(name = "deep", limits = c(0, 100), breaks = c(20, 40, 60, 80), labels = c(20, 40, 60, 80)) +
+  coord_sf(xlim = c(-80, -30), ylim = c(10, 45)) +
+  #guides(fill=guide_colorbar(title="Mesopelagic (%)", direction = "horizontal")) +
+  theme_linedraw() +
+  xlab("")+
+  ylab("") +
+  theme(legend.position = "none")
+  #theme(legend.position = c(0.80, 0.085), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+
+```
+
 ``` {r cleanup}
 rm(mtrack_1, mtrack_2, mtrack_3, mtrack_4, mtrack_5, mtrack_6, btrack_1, btrack_2, btrack_3, btrack_4, btrack_5, btrack_6, btrack_7, btrack_8, btrack_9, btrack_10, btrack_11, btrack_12, btrack_13)
 ```
@@ -912,7 +1009,7 @@ This cluster anlysis is performed using the day/night summaries of time-at-depth
 # remove tracking days over water more shallow than 1000 meters
 Ctad2 <- high_res %>% filter(depth <= -1000)
 # Create a dataframe of only cluster variables
-Ctad2 <- Ctad2 %>% dplyr::select(-c("ptt", "Date", "species", "kode", "depth"))
+Ctad2 <- Ctad2 %>% dplyr::select(c("d.b1", "d.b2", "d.b3", "d.b4", "d.b5", "d.b6", "d.b7", "d.b8", "d.sd", "n.b1", "n.b2", "n.b3", "n.b4", "n.b5", "n.b6", "n.b7", "n.b8", "n.sd"))
 
 ## Heirarchical Clustering
 # create a distance matrix
@@ -946,7 +1043,7 @@ NbClust(data = Ctad2, diss = NULL, distance = "manhattan", min.nc = 2,
 
 Step 3: partition the data into its rightful cluster
 ```{r fine-scale cluster assignment}
-combo_sub_grp2 <- cutree(Clust2, k = 11)
+combo_sub_grp2 <- dendextend::cutree(Clust2, k = 11)
 table(combo_sub_grp2)
 
 Ctad2$cluster <- combo_sub_grp2
@@ -993,7 +1090,6 @@ format_tad_combo <- data.frame(
 
 
 # CLUSTER 1
-
 format_tad_combo %>%
   filter(cluster == 1) %>%
   ggplot(aes(x = bin, y = frequency)) +
@@ -1304,166 +1400,174 @@ Create a dendrogram showing the separation of the different heirarchical cluster
 Note: PRUNED DENDROGRAM CODE DOES NOT SEEM TO BE FUNCTIONING PROPERLY IN ITS CURRENT STATE
 ```{r dendrogram}
 plot(Clust2)
-# trying to figure out what parts of the dendrogram corespond to which clusters
-cluster_dendro <- as.dendrogram(Clust2)
-colors_to_use <- as.numeric(Ctad2$cluster)
-colors_to_use <- colors_to_use[order.dendrogram(cluster_dendro)]
-labels_colors(cluster_dendro) <- colors_to_use
-labels_colors(cluster_dendro)
+# trying to figure out what parts of the dendrogram correspond to which clusters
+cluster_dendro <- as.dendrogram(Clust2) # create the dendrogram
+
+# assign clusters to dendrogram leaves
+leaf.stmp <- high_res$species 
+leaf.stmp <- leaf.stmp[order.dendrogram(cluster_dendro)] # figure out what species go to what labels
+
+leaf.stmp2 <- cluster_dendro %>% labels
+
+leaf.stmp3 <- high_res$cluster
+leaf.stmp3 <- leaf.stmp3[order.dendrogram(cluster_dendro)]
+
+leaf.stmp <- data.frame(
+  species = leaf.stmp,
+  label = leaf.stmp2,
+  cluster = leaf.stmp3
+)
+
+# prune leaves from rare clusters
+color_dendro <- cluster_dendro %>% prune(c("152", "596", "266", "748", "338", "561", "332", "335", "336", "337", "331", "333", "329", "492", "774"))
+
+color.leaf.stmp <- leaf.stmp %>% filter(cluster <= 5)
+
+labels_colors(color_dendro) <- color.leaf.stmp$cluster
+labels_colors(color_dendro)
 plot(cluster_dendro)
 
 # make a list of ggplot colors
-hue_pal()(10)
-show_col(hue_pal()(10))
-ggplot_colors <- data.frame(
-  numb = c(1,2,3,4,5,6,7,8,9,10),
-  code = c("#F8766D", "#D89000", "#A3A500", "#39B600", "#00BF7D", "#00BFC4", "#00B0F6", "#9590FF", "#E76BF3", "#FF62BC")
-)
+cmocean("deep")(5)
+show_col(cmocean("deep")(5))
 
-# finally, make a pretty colored dendrogram
-color_dendro <- color_branches(cluster_dendro, clusters = colors_to_use, col = c("#00B0F6", "#00BFC4", "#FF62BC", "#E76BF3", "#F8766D", "#D89000", "#9590FF", "#39B600", "#A3A500", "#00BF7D"))
-
-color_dendro <- color_branches(cluster_dendro, clusters = colors_to_use, col = c("black", "black", "black", "black", "#F8766D", "#F8766D", "#00BFC4", "#00BFC4", "#00BFC4", "#00BFC4")) # general patterns
+# make a pretty colored dendrogram: 
+## NOTE: THIS WORKS TO CREATE A DENDROGRAM THAT HAS BOTH SPECIES
+color_dendro <- color_branches(color_dendro, clusters = color.leaf.stmp$cluster, col = c("#FDFECCFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF")) # general patterns
 plot(color_dendro)
 ```
 
-# Heatmaps ## NEEDS UPDATING ##
+```{r species dendro}
+# assign dendrogram leaves to species
+blue.leaf.stmp <- leaf.stmp %>% filter(species == "P.glauca") 
+mako.leaf.stmp <- leaf.stmp %>% filter(species == "I.oxyrinchus")
+
+# separate blue and makos
+blue.dendro <- cluster_dendro %>% prune(as.character(mako.leaf.stmp$label))
+mako.dendro <- cluster_dendro %>% prune(as.character(blue.leaf.stmp$label))
+
+plot(blue.dendro)
+plot(mako.dendro)
+
+# prune leaves from rare clusters
+blue.dendro <- blue.dendro %>% prune(c("152", "596", "266", "748")) 
+
+mako.dendro <- mako.dendro %>% prune(c("338", "561", "332", "335", "336", "337", "331", "333", "329", "492", "774")) 
+
+blue.leaf.stmp <- blue.leaf.stmp %>% filter(cluster <= 5) # preserve leaf number and order
+mako.leaf.stmp <- mako.leaf.stmp %>% filter(cluster <= 5) # preserve leaf number and order
+# assign cluster to branches
+blue.dendro <- color_branches(blue.dendro, clusters = blue.leaf.stmp$cluster, col = c("#FDFECCFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF"))
+plot(blue.dendro)
+labels_colors(blue.dendro) <- blue.leaf.stmp$cluster # check that it worked
+labels_colors(blue.dendro) # yeah it fuckn did
+
+mako.dendro <- color_branches(mako.dendro, clusters = mako.leaf.stmp$cluster, col = c("#FDFECCFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF"))
+plot(mako.dendro)
+
+labels_colors(mako.dendro) <- mako.leaf.stmp$cluster # check that it worked
+labels_colors(mako.dendro)
+
+```
+
+## Heatmaps 
 Create heatmaps of vertical distribution within each cluster. Here, each column represents a destinct tracking day with different depth bins extending down into the water column along the y-axis. The color of each box represents the proportion of time that the animal spent in that depth bin on that particular day. 
-``` {r cluster heatmaps}
+
+Step 1: recreate daily TAD summaries from series data (default summaries ommit >200 days)
+```{r series to tad}
+# step 1: calculate the percentage of time in each depth bin for each day for each individual
+# blues
+blue.bin.depth <- blue_series %>% group_by(ptt, Date)
+blue.bin.depth$bin <- cut(blue.bin.depth$depth, breaks = bins, labels = c(seq(1:8)), include.lowest = TRUE)
+
+blue.bin.depth <- blue.bin.depth %>% count(bin, .drop = FALSE)
+blue.bin.depth <- blue.bin.depth %>% mutate(tot = sum(n))
+blue.bin.depth <- blue.bin.depth %>% filter(tot >= 280)
+blue.bin.depth <- blue.bin.depth %>% mutate(perc = (n / tot)*100)
+
 # makos
-combo_heatmap <- tad_combo %>% dplyr::select(-c(Date, ptt, owner, kode, species, cluster))
-combo_heatmap$Row <- (1:nrow(combo_heatmap))
+mako.bin.depth <- mako_series %>% group_by(ptt, Date)
+mako.bin.depth$bin <- cut(mako.bin.depth$depth, breaks = bins, labels = c(seq(1:8)), include.lowest = TRUE)
 
-pived_stamp <- data.frame(
-  species = rep(tad_combo$species, each = 8),
-  cluster = rep(tad_combo$cluster, each = 8)
-)
+mako.bin.depth <- mako.bin.depth %>% count(bin, .drop = FALSE)
+mako.bin.depth <- mako.bin.depth %>% mutate(tot = sum(n))
+mako.bin.depth <- mako.bin.depth %>% filter(tot >= 280)
+mako.bin.depth <- mako.bin.depth %>% mutate(perc = (n / tot)*100)
 
-pived <- combo_heatmap %>% 
-  pivot_longer( -Row, names_to = "bin", values_to = "count")
+tad_combo <- rbind(mako.bin.depth, blue.bin.depth)
+tad_combo <- tad_combo %>% mutate(kode = paste(Date, ptt, sep = "_"))
+tad_combo <- inner_join(tad_combo, clust_stamp2, by = c("kode"))
+tad_combo <- ungroup(tad_combo)
+tad_combo$bin <- as.numeric(tad_combo$bin)
+```
 
-pived <- cbind(pived, pived_stamp)
-
-pived$bin <- factor(pived$bin, levels = c("bin1", "bin2", "bin3", "bin4", "bin5", "bin6", "bin7", "bin8"), ordered = TRUE)
-pived$bin <- as.numeric(pived$bin)
-pived$Row <- factor(pived$Row, levels = c(unique(combo_heatmap$Row)), ordered = TRUE)
-
-# repeat for all 9 clusters and both species
-# MAKOS
+``` {r cluster heatmaps}
 # C1
-ggplot(data = filter(pived, species == "I. oxyrinchus")) +
-  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==1), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
+c1 <- filter(tad_combo, cluster == 1)
+date_stmp <- c1 %>% dplyr::select(c(Date, kode))
+date_stmp <- date_stmp[which(!duplicated(date_stmp$kode)),]
+date_stmp <- date_stmp %>% mutate(Row = c(seq(1:nrow(date_stmp))))
+c1 <- inner_join(c1, date_stmp, by = c("Date", "kode"))
+
+ggplot(data = c1) +
+  geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,80)) +
+  theme_minimal() +
   scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
   theme(aspect.ratio = 20/10)
 # C2
-ggplot(data = filter(pived, species == "I. oxyrinchus")) +
-  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==2), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
-  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-  theme(aspect.ratio = 20/10)
-# C3
-ggplot(data = filter(pived, species == "I. oxyrinchus")) +
-  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==3), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
-  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-  theme(aspect.ratio = 20/10)
- # C4
-ggplot(data = filter(pived, species == "I. oxyrinchus")) +
-  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==4), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
-  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-  theme(aspect.ratio = 20/10)
-# C5
-ggplot(data = filter(pived, species == "I. oxyrinchus")) +
-  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==5), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
-  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-  theme(aspect.ratio = 20/10)
-# C6
-ggplot(data = filter(pived, species == "I. oxyrinchus")) +
-  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==6), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
-  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-  theme(aspect.ratio = 20/10)
-# C7
-ggplot(data = filter(pived, species == "I. oxyrinchus")) +
-  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==7), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
-  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-  theme(aspect.ratio = 20/10)
-# C8
-ggplot(data = filter(pived, species == "I. oxyrinchus")) +
-  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==8), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
-  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-  theme(aspect.ratio = 20/10)
-# C9
-ggplot(data = filter(pived, species == "I. oxyrinchus")) +
-  geom_tile(data = filter(pived, species == "I. oxyrinchus" & cluster ==9), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
-  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-  theme(aspect.ratio = 20/10)
+c2 <- filter(tad_combo, cluster == 2)
+date_stmp <- c2 %>% dplyr::select(c(Date, kode))
+date_stmp <- date_stmp[which(!duplicated(date_stmp$kode)),]
+date_stmp <- date_stmp %>% mutate(Row = c(seq(1:nrow(date_stmp))))
+c2 <- inner_join(c2, date_stmp, by = c("Date", "kode"))
 
-# BLUES
-# C1
-ggplot(data = filter(pived, species == "P. glauca")) +
-  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==1), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
-  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-  theme(aspect.ratio = 20/10)
-# C2
-ggplot(data = filter(pived, species == "P. glauca")) +
-  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==2), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
+ggplot(data = c2) +
+  geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,80)) +
+  theme_minimal() +
   scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
   theme(aspect.ratio = 20/10)
 # C3
-ggplot(data = filter(pived, species == "P. glauca")) +
-  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==3), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
+c3 <- filter(tad_combo, cluster == 3)
+date_stmp <- c3 %>% dplyr::select(c(Date, kode))
+date_stmp <- date_stmp[which(!duplicated(date_stmp$kode)),]
+date_stmp <- date_stmp %>% mutate(Row = c(seq(1:nrow(date_stmp))))
+c3 <- inner_join(c3, date_stmp, by = c("Date", "kode"))
+
+ggplot(data = c3) +
+  geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,80)) +
+  theme_minimal() +
   scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
   theme(aspect.ratio = 20/10)
 # C4
-ggplot(data = filter(pived, species == "P. glauca")) +
-  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==4), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
+c4 <- filter(tad_combo, cluster == 4)
+date_stmp <- c4 %>% dplyr::select(c(Date, kode))
+date_stmp <- date_stmp[which(!duplicated(date_stmp$kode)),]
+date_stmp <- date_stmp %>% mutate(Row = c(seq(1:nrow(date_stmp))))
+c4 <- inner_join(c4, date_stmp, by = c("Date", "kode"))
+
+ggplot(data = c4) +
+  geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,80)) +
+  theme_minimal() +
   scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
   theme(aspect.ratio = 20/10)
 # C5
-ggplot(data = filter(pived, species == "P. glauca")) +
-  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==5), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
+c5 <- filter(tad_combo, cluster == 5)
+date_stmp <- c5 %>% dplyr::select(c(Date, kode))
+date_stmp <- date_stmp[which(!duplicated(date_stmp$kode)),]
+date_stmp <- date_stmp %>% mutate(Row = c(seq(1:nrow(date_stmp))))
+c5 <- inner_join(c5, date_stmp, by = c("Date", "kode"))
+
+ggplot(data = c5) +
+  geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,80)) +
+  theme_minimal() +
   scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
   theme(aspect.ratio = 20/10)
-# C6
-ggplot(data = filter(pived, species == "P. glauca")) +
-  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==6), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
-  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-  theme(aspect.ratio = 20/10)
-# C7
-ggplot(data = filter(pived, species == "P. glauca")) +
-  geom_tile(data = filter(pived, species == "P. glauca" & cluster ==7), aes(x = Row, y = bin, fill = count), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,100), discrete = FALSE) +
-  theme_dendro() +
-  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-  theme(aspect.ratio = 20/10)
+
 ```
 
 # Proportion time at depth accross daylight hours heatmaps
@@ -1474,10 +1578,13 @@ Note: MAKE SURE TO USE LOCAL TIME
 combo_series <- rbind(mako_series, blue_series)
 combo_series$Local_Time <- as_hms(combo_series$Local_Time)
 cluster_series <- inner_join(combo_series, clust_stamp2, by = "kode")
-unique(combo_series$kode)
+unique(cluster_series$kode)
+
+cluster_series <- filter(cluster_series, cluster <= 5)
+cluster_series$cluster <- factor(cluster_series$cluster, levels = c(5,1,2,4,3), ordered = TRUE) 
 
 # daily cluster kernal density heatmaps
-ggplot(data = filter(cluster_series, cluster == 1), aes(x = Local_Time, y = depth) ) +
+ggplot(data = filter(cluster_series, cluster == 5), aes(x = Local_Time, y = depth) ) +
   stat_density_2d(aes(fill = ((..ndensity..))), geom = "raster", contour = FALSE) +
   facet_wrap(~cluster) +
   scale_fill_viridis(option = "magma") + 
@@ -1489,12 +1596,27 @@ ggplot(data = filter(cluster_series, cluster == 1), aes(x = Local_Time, y = dept
   theme_minimal()
 
 # daily cluster point maps
-ggplot(data = filter(cluster_series, cluster == 5)) +
+ggplot(data = cluster_series) +
   geom_point(aes(x = Local_Time, y = depth, color = species.x), alpha = 0.01) +
   facet_grid(cluster ~ species.x) + 
   scale_y_reverse(limits = c(1000, 0), breaks = c(1000, 500, 0)) +
+  ylab("Depth (m)") +
+  xlab ("Local Time") +
+  facet_grid(species.x~cluster) +
   theme_classic() +
   theme(legend.position = "bottom")
+
+# test stat_bin_2d
+ggplot(data = cluster_series, aes(x = Local_Time, y = depth) ) +
+  stat_bin_2d(aes(fill = (log10((..ndensity..)+0.01))), geom = "tile", bins = c(100, 100)) +
+  scale_fill_cmocean(name = "dense") + 
+  labs(fill = "Relative Density (log)") +
+  scale_y_reverse(limits = c(1500, 0), breaks = c(0, 500, 1000, 1500), labels = c("0", "500", "1000", "1500")) +
+  scale_x_continuous(breaks = c(21600, 64800), labels = c("06:00", "18:00")) +
+  xlab("Local Time") +
+  ylab("Depth (m)") +
+  facet_grid(species.x~cluster) +
+  theme_linedraw()
 ```
 
 # Series Plots - Mass Production
@@ -2155,6 +2277,29 @@ ggplot(data = ln2) +
 # Cluster Conditions
 This chunk computes the average environmental conditions within each cluster
 ```{r cluster conditions}
+high_res %>% group_by(cluster) %>% summarize(
+   d.1 = mean(d.b1),
+   d.2 = mean(d.b2),
+   d.3 = mean(d.b3),
+   d.4 = mean(d.b4),
+   d.5 = mean(d.b5),
+   d.6 = mean(d.b6),
+   d.7 = mean(d.b7),
+   d.8 = mean(d.b8),
+   d.sd = mean(d.sd),
+   n.1 = mean(n.b1),
+   n.2 = mean(n.b2),
+   n.3 = mean(n.b3),
+   n.4 = mean(n.b4),
+   n.5 = mean(n.b5),
+   n.6 = mean(n.b6),
+   n.7 = mean(n.b7),
+   n.8 = mean(n.b8),
+   n.sd = mean(n.sd),
+)
+ 
+
+
 combo_mod$Month <- as.numeric(combo_mod$Month)
 combo_mod$Year <- as.numeric(combo_mod$Year)
 combo_mod$lunar <- as.numeric(combo_mod$lunar)
