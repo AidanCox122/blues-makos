@@ -1,0 +1,2539 @@
+---
+title: "Vertical Habitat Use of NA Blue and Mako Sharks"
+author: "Aidan Cox"
+date: "1/5/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# LIBRARY LIST
+
+``` {r Library List, echo=FALSE}
+# general #
+library(tidyverse)
+library(ggplot2)
+library(writexl)
+library(readxl)
+library(cmocean)
+
+# clustering #
+library(NbClust)
+library(tags2etuff)
+library(devtools)
+library(dendextend)
+library(hms)
+library(vegan)
+library(ggdendro)
+
+# mapping #
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rgeos)
+library(ggspatial)
+library(sf)
+library(viridis)
+library(ncdf4)
+
+# environmental data #
+library(readr)
+library(raster)
+library(HMMoce)
+library(lunar)
+devtools::load_all('~/Desktop/blues-makos/analyzePSAT')
+
+# logistic regression #
+library(foreign)
+library(nnet)
+library(reshape2)
+library(mclogit)
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+```
+
+## DATA PROCESSING
+# Load the etuff data for blue and mako sharks ---- 
+``` {r Read etuff files}
+fList <- list.files("~/Desktop/blues-makos/etuff_new/", full.names = T)
+blues <- fList[grep('160424', fList)]
+makos <- fList[grep('159924', fList)]
+
+# for mako sharks
+for(i in 1:length(makos)) {
+  etuff <- read_etuff(makos[i])
+  tad <- get_tad(etuff)
+  tad <- tad %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
+  tad <- tad %>% pivot_wider(id_cols = Date,
+              names_from = bin,
+              values_from = freq,
+              values_fn = list(freq = mean))
+  tad$ptt <- etuff$meta$ptt
+  tad$owner <- etuff$meta$person_owner
+  assign(paste("mtad", i, sep = "_"), tad)
+  rm(etuff, tad)
+  print(i)
+}
+
+# for blue sharks 
+for(i in 1:length(blues)) {
+  etuff <- read_etuff(blues[i])
+  tad <- get_tad(etuff)
+  tad <- tad %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
+  tad <- tad %>% pivot_wider(id_cols = Date,
+                             names_from = bin,
+                             values_from = freq,
+                             values_fn = list(freq = mean))
+  tad$ptt <- etuff$meta$ptt
+  tad$owner <- etuff$meta$person_owner
+  assign(paste("btad", i, sep = "_"), tad)
+  rm(etuff, tad)
+  print(i)
+}
+```
+
+# now establish common bins between the different tags
+``` {r Common Depth Bins}
+# first make sure that Greg's tags have 14 tad bins and Cam's tags have 12
+# makos
+mtad_3$TimeAtDepthBin12 <- 0 # Greg's tag
+mtad_3$TimeAtDepthBin13 <- 0 # Greg's tag
+mtad_3$TimeAtDepthBin14 <- 0 # Greg's tag
+
+mtad_5$TimeAtDepthBin11 <- 0 # Cam's tag
+mtad_5$TimeAtDepthBin12 <- 0 # Cam's tag
+
+mtad_6$TimeAtDepthBin12 <- 0 # Cam's tag
+
+mtad_7$TimeAtDepthBin12 <- 0 # Cam's tag
+
+# blues (all Cam's tags)
+btad_1$TimeAtDepthBin11 <- 0
+btad_1$TimeAtDepthBin12 <- 0
+
+btad_2$TimeAtDepthBin12 <- 0
+
+btad_3$TimeAtDepthBin12 <- 0
+
+btad_7$TimeAtDepthBin12 <- 0
+
+btad_9$TimeAtDepthBin11 <- 0
+btad_9$TimeAtDepthBin12 <- 0
+
+btad_11$TimeAtDepthBin12 <- 0
+
+# now combine bins to create the below distribution
+bins <- c(0, 10, 50, 100, 200, 300, 400, 500, 2000)
+# Camrin's Innate Bins = c(2, 10, 20, 50, 100, 200, 300, 400, 500, 700, 1000, 2000)
+# Gregory's Innate Bins = c(5, 10, 25, 50, 75, 100, 150, 200, 300, 400, 500, 600, 800, 2000)
+
+# makos
+gregory_mako <- rbind(mtad_1, mtad_2, mtad_3) 
+gregory_mako <- gregory_mako %>% transmute(
+  Date = Date,
+  bin1 = TimeAtDepthBin01 + TimeAtDepthBin02,
+  bin2 = TimeAtDepthBin03 + TimeAtDepthBin04,
+  bin3 = TimeAtDepthBin05 + TimeAtDepthBin06,
+  bin4 = TimeAtDepthBin07 + TimeAtDepthBin08,
+  bin5 = TimeAtDepthBin09,
+  bin6 = TimeAtDepthBin10,
+  bin7 = TimeAtDepthBin11,
+  bin8 = TimeAtDepthBin12 + TimeAtDepthBin13 + TimeAtDepthBin14,
+  ptt = ptt,
+  owner = owner
+)
+camrin_mako <- rbind(mtad_4, mtad_5, mtad_6, mtad_7)
+camrin_mako <- camrin_mako %>% transmute(
+  Date = Date,
+  bin1 = TimeAtDepthBin01 + TimeAtDepthBin02,
+  bin2 = TimeAtDepthBin03 + TimeAtDepthBin04,
+  bin3 = TimeAtDepthBin05,
+  bin4 = TimeAtDepthBin06,
+  bin5 = TimeAtDepthBin07,
+  bin6 = TimeAtDepthBin08,
+  bin7 = TimeAtDepthBin09,
+  bin8 = TimeAtDepthBin10 + TimeAtDepthBin11 + TimeAtDepthBin12,
+  ptt = ptt,
+  owner = owner
+)
+
+tad_mako <- rbind(gregory_mako, camrin_mako)
+
+rm(gregory_mako, camrin_mako)
+
+# blues 
+
+tad_blues <- rbind(btad_1, btad_2, btad_3, btad_4, btad_5, btad_6, btad_7, btad_8, btad_9, btad_10, btad_11, btad_12, btad_13)
+tad_blues <- tad_blues %>% transmute(
+  Date = Date,
+  bin1 = TimeAtDepthBin01 + TimeAtDepthBin02,
+  bin2 = TimeAtDepthBin03 + TimeAtDepthBin04,
+  bin3 = TimeAtDepthBin05,
+  bin4 = TimeAtDepthBin06,
+  bin5 = TimeAtDepthBin07,
+  bin6 = TimeAtDepthBin08,
+  bin7 = TimeAtDepthBin09,
+  bin8 = TimeAtDepthBin10 + TimeAtDepthBin11 + TimeAtDepthBin12,
+  ptt = ptt,
+  owner = owner
+)
+```
+
+```{r cleanup}
+rm(mtad_1, mtad_2, mtad_3, mtad_4, mtad_5, mtad_6, btad_1, btad_2, btad_3, btad_4, btad_5, btad_6, btad_7, btad_8, btad_9, btad_10, btad_11, btad_12, btad_13 )
+```
+
+## GENERAL COMPARISONS
+# Time-at-temperature (general)
+Construct time at temperature profiles by adding temperature data to time-series of depth occupancy. Note: For mako sharks, only camrin's tags can be used for this computation since greg's tags don't contian series information
+
+``` {r Time-at-temperature}
+# MAKOS
+pdt <- data.frame()
+
+for (i in 4:length(makos)) {
+  etuff <- read_etuff(makos[i])
+  hdr <- get_header(makos[i])
+  temp <- get_pdt(etuff)
+  interp <- interp_pdt(etuff)
+  series <- get_series(etuff)
+  series <- filter(series, !is.na(depth))
+  series <- add_series_temp(series, temp, interp)
+  series <- filter(series, !is.na(temperature))
+  series$dn <- add_daynight(series, etuff)
+  series$ptt <- hdr$ptt
+  pdt <- rbind(pdt, series)
+  rm(etuff, hdr, temp, interp, series)
+  print(i)
+}
+
+pdt$dup <- pdt$DateTime_local
+pdt <- pdt %>% separate(dup, into = c("Date", "Time"), sep = "([ ])")
+pdt <- pdt %>% mutate(kode = paste(Date, ptt, sep = "_"))
+
+ggplot(data = pdt) +
+  geom_histogram(data = subset(pdt, dn == "d"), aes(x = temperature, y = -(..count..)/sum(..count..)), fill = NA, color = "black") +
+  geom_histogram(data = subset(pdt, dn =="n"), aes(x = temperature, y = (..count..)/sum(..count..)), color = "black") +
+  coord_flip() +
+  ylab("Proportion") +
+  xlab("Temperature (ºC)") +
+  ggtitle("Mako Shark Time at Temperature") +
+  theme_classic()
+
+# BLUES
+pdtb <- data_frame()
+
+for (i in 1:length(blues)) {
+  etuff <- read_etuff(blues[i])
+  hdr <- get_header(blues[i])
+  temp <- get_pdt(etuff)
+  interp <- interp_pdt(etuff)
+  series <- get_series(etuff)
+  series <- filter(series, !is.na(depth))
+  series <- add_series_temp(series, temp, interp)
+  series <- filter(series, !is.na(temperature))
+  series$dn <- add_daynight(series, etuff)
+  series$ppt <- hdr$ptt
+  pdtb <- rbind(pdtb, series)
+  rm(etuff, hdr, temp, interp, series)
+  print(i)
+}
+
+pdtb$dup <- pdtb$DateTime_local
+pdtb <- pdtb %>% separate(dup, into = c("Date", "Time"), sep = "([ ])")
+pdtb <- pdtb %>% mutate(kode = paste(Date, ppt, sep = "_"))
+pdtb <- left_join(pdtb, ild_stmp)
+
+ggplot() +
+  geom_histogram(data = subset(pdtb, dn == "d"), aes(x = temperature, y = -(..count..)/sum(..count..)), fill = NA, color = "black") +
+  geom_histogram(data = subset(pdtb, dn == "n"), aes(x = temperature, y = (..count..)/sum(..count..)), color = "black") +
+  coord_flip() +
+  ylab("Proportion") +
+  xlab("Temperature (ºC)") +
+  ggtitle("Blue Shark Time at Temperature") +
+  theme_classic()
+```
+
+# Time-at-depth (general)
+``` {r Time-at-depth}
+# MAKOS
+ggplot() +
+  geom_histogram(data = subset(pdt, dn == "d"), aes(x = depth, y = -(..count..)/sum(..count..)), fill = NA, color = "black") +
+  geom_histogram(data = subset(pdt, dn == "n"), aes(x = depth, y = (..count..)/sum(..count..)), color = "black") +
+  scale_x_reverse() +
+  scale_y_continuous(limits = c(-0.55, 0.55), breaks = c(-0.4, -0.2, 0, 0.2, 0.4), labels = c("0.4", "0.2", "0", "0.2", "0.4")) +
+  coord_flip() +
+  ylab("Proportion") +
+  xlab("Depth (m)") +
+  ggtitle("Mako Time at Depth") +
+  theme_classic()
+
+# BLUES
+
+ggplot() +
+  geom_histogram(data = subset(pdtb, dn == "d"), aes(x = depth, y = -(..count..)/sum(..count..)), fill = NA, color = "black") +
+  geom_histogram(data = subset(pdtb, dn == "n"), aes(x = depth, y = (..count..)/sum(..count..)), color = "black") +
+  expand_limits(x = c(0, 1300)) +
+  scale_x_reverse(breaks = c(0, 400, 800, 1200), labels = c("0", "400", "800", "1200")) +
+  scale_y_continuous(breaks = c(-0.4, -0.2, 0, 0.2, 0.4), labels = c("0.4", "0.2", "0", "0.2", "0.4")) +
+  coord_flip() +
+  ylab("Proportion") +
+  xlab("Depth (m)") +
+  ggtitle("Blue Time at Depth") +
+  theme_classic()
+
+# COMBO
+# Note: the binwidth here is 50, but it occurs around breaks in x (ie. -25-25, 25-75, etc.)
+ggplot() +
+  geom_histogram(data = pdtb, aes(x = depth, y = (..count..)/sum(..count..)), fill = NA, color = "blue", binwidth = 50) +
+  geom_histogram(data = pdt, aes(x = depth, y = -(..count..)/sum(..count..)), color = "black", binwidth = 50) +
+  expand_limits(x = c(0, 1300)) +
+  scale_x_reverse(breaks = c(0, 400, 800, 1200, 1300), labels = c("0", "400", "800", "1200", "1300")) +
+  scale_y_continuous(breaks = c(-0.25, 0, 0.25, 0.5), labels = c("0.25", "0", "0.25", "0.5")) +
+  coord_flip() +
+  ylab("Proportion of Time at Depth") +
+  xlab("Depth (m)") +
+  ggtitle("General Vertical Habitat") +
+  theme_classic()
+
+```
+
+# Proportion Time-at-depth heatmap
+Calculate the liklihood of depth occupancy across a 24-hour period. 
+
+NOTE: Consider these figures carefully - are the same number of observations being counted at each time of day. Why is the normalized density being multiplied by the number of observations?
+
+``` {r TAD Heatmaps}
+# MAKOS
+props <- pdt %>% separate(DateTime_local, c("Date", "Time_Local"), sep =  "([ ])") %>%
+  group_by(Time_Local) %>%
+  count(depth)
+
+duptimes <- props$n
+idx <- rep(1:nrow(props), duptimes)
+duprops <- props[idx,]
+duprops <- duprops[,-c(3)]
+rm(props,duptimes, idx)
+
+duprops$Time_Local <- as.hms(duprops$Time_Local)
+duprops$Time_Local <- as.numeric(duprops$Time_Local)
+
+ggplot(data = duprops, aes(x = Time_Local, y = depth) ) +
+  stat_density_2d(aes(fill = ((..density..)*n)), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette = "Spectral") + 
+  scale_y_reverse() +
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  xlab("Time of Day") +
+  ylab("Depth(m)") +
+  theme_minimal()
+
+# BLUES
+
+propsb <- pdtb %>% separate(DateTime_local, c("Date", "Time_Local"), sep =  "([ ])") %>%
+  group_by(Time_Local) %>%
+  count(depth)
+
+duptimes <- propsb$n
+idx <- rep(1:nrow(propsb), duptimes)
+dupropsb <- propsb[idx,]
+dupropsb <- dupropsb[,-c(3)]
+rm(propsb, duptimes, idx)
+
+dupropsb$Time_Local <- as.hms(dupropsb$Time_Local)
+dupropsb$Time_Local <- as.numeric(dupropsb$Time_Local)
+
+ggplot(data = dupropsb, aes(x = Time_Local, y = depth) ) +
+  stat_density_2d(aes(fill = ((..density..)*n)), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette = "Spectral") + 
+  scale_y_reverse() +
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  xlab("Time of Day") +
+  ylab("Depth(m)") +
+  theme_minimal()
+```
+
+# Proportion Time-at-temperature heatmap
+Calculate the liklihood of temperature occupancy across a 24-hour period:
+
+NOTE: Beware of a similar connundrum as in the above chunk...
+``` {r TAT Heatmap}
+# makos
+props <- pdt %>% separate(DateTime_local, c("Date", "Time_Local"), sep =  "([ ])") %>%
+  group_by(Time_Local) %>%
+  count(temperature)
+
+ggplot(data = props, aes(x = as.hms(Time_Local), y = temperature) ) +
+  stat_density_2d(aes(fill = ((..density..)*n)), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette = "Spectral") + 
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  xlab("Time of Day") +
+  ylab("Temperature(ºC)") +
+  theme_minimal()
+
+# blues
+propsb <- pdtb %>% separate(DateTime_local, c("Date", "Time_Local"), sep =  "([ ])") %>%
+  group_by(Time_Local) %>%
+  count(temperature)
+
+ggplot(data = propsb, aes(x = as.hms(Time_Local), y = temperature) ) +
+  stat_density_2d(aes(fill = ((..density..)*n)), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette = "Spectral") + 
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  xlab("Time of Day") +
+  ylab("Temperature(ºC)") +
+  theme_minimal()
+
+# cleanup
+rm(props, propsb, duptimes, idx, duprops, dupropsb)
+```
+
+# Time-series information
+These loops compile the time-series data from each of Camrin's tagged sharks (Greg's tags did not collect this information)
+```{r get_series}
+# makos
+for (i in 4:length(makos)) {
+  etuff <- read_etuff(makos[i])
+  series <- get_series(etuff)
+  series$dn <- add_daynight(series, etuff)
+  series$ptt <- etuff$meta$ptt
+  series$dup <- series$DateTime_local
+  series <- series %>% separate(dup, into = c("Date", "Local_Time"), sep = "([ ])")
+  series <- series %>% mutate(
+    kode = paste(Date, ptt, sep = "_")
+  )
+  series <- series %>% filter(!is.na(depth))
+  series$species <- "I.oxyrinchus"
+  assign(paste("mseries",i, sep = "_" ), series)
+  rm(etuff, series)
+  print(i)
+}
+
+mako_series <- rbind(mseries_4, mseries_5, mseries_6, mseries_7)
+
+# blues
+for (i in 1:length(blues)) {
+  etuff <- read_etuff(blues[i])
+  series <- get_series(etuff)
+  series$dn <- add_daynight(series, etuff)
+  series$ptt <- etuff$meta$ptt
+  series$dup <- series$DateTime_local
+  series <- series %>% separate(dup, into = c("Date", "Local_Time"), sep = "([ ])")
+  series <- series %>% mutate(
+    kode = paste(Date, ptt, sep = "_")
+  )
+  series <- series %>% filter(!is.na(depth))
+  series$species <- "P.glauca"
+  assign(paste("bseries",i, sep = "_" ), series)
+  rm(etuff, series)
+  print(i)
+}
+
+bseries_12 <- bseries_12[,-4]
+blue_series <- rbind(bseries_1, bseries_2, bseries_3, bseries_4, bseries_5, bseries_6, bseries_7, bseries_8, bseries_9, bseries_10, bseries_11, bseries_12, bseries_13)
+```
+
+```{r summary statistics}
+toDelete <- c(seq(0,nrow(mseries_7), 2))
+mseries_7.short <- mseries_7[-toDelete,]
+rm(toDelete)
+
+mako_series <- rbind(mseries_4, mseries_5, mseries_6, mseries_7.short)
+combo_series <- rbind(mako_series, blue_series)
+
+combo_series <- inner_join(combo_series, bathy_stamp)
+test <- filter(combo_series, bathy > -1000)
+unique(test$kode) # 367 tracking days in total occured over the continental shelf
+
+# filter out tracking days with less than 75% of their data
+complete0.5 <- combo_series %>% group_by(ptt) %>% count(Date) # there are 1992 total tracking days with series data
+complete0.5 <- complete0.5 %>% filter(n >= 280) # there are 1249 tracking days with more than 50% of their series data
+
+combo_series <- left_join(combo_series, complete0.5, by = c("Date", "ptt"))
+combo_series <- combo_series %>% filter(!is.na(n))
+
+# average maximum depth by species
+max.depth <- combo_series %>% group_by(species) %>% summarize(max = max(depth))
+max.depth <- combo_series %>% group_by(species, kode) %>% summarize(max = max(depth))
+max.depth <- max.depth %>% group_by(species) %>% summarize(mean = mean(max))
+
+# temperature data
+test <- inner_join(pdt, complete0.5)
+summary(test$temperature)
+
+test <- inner_join(pdtb, complete0.5)
+summary(test$temperature)
+
+```
+
+# GENERAL VERTICAL HABITAT FIGURE
+The goal here is to try and make a figure that shows the series track over a large swath of deployment time for a single individual blue and mako shark. This figure should capture a variety of behavior types in a variety of vertical habitats (ie. shelf, slope, plains):
+``` {r series general vert. habitat: blues}
+btuff <- read_etuff(blues[7])
+b_hdr <- get_header(blues[7])
+b_temp <- get_pdt(btuff)
+b_interp <- interp_pdt(btuff)
+b_series <- get_series(btuff)
+b_series <- filter(b_series, !is.na(depth))
+b_series <- add_series_temp(b_series, b_temp, b_interp)
+b_series <- filter(b_series, !is.na(temperature))
+b_series$dn <- add_daynight(b_series, btuff)
+b_series$ppt <- b_hdr$ptt
+rm(btuff, b_hdr, b_temp, b_interp)
+b_series$dup <- b_series$DateTime_local
+b_series <- b_series %>% separate(dup, into = c("Date", "Time"), sep = "([ ])")
+b_series <- b_series %>% mutate(kode = paste(Date, ppt, sep = "_"))
+b_series$species <- "P.glauca"
+
+
+# add bathymetry
+bathy_stamp <- bathy_stamp %>% rename(bathy = depth)
+b_series <- left_join(b_series, bathy_stamp, by = c("kode"))
+b_series$bathy <- b_series$bathy * -1
+
+# add mixed layer depth
+ild.5_stmp <- high_res %>% dplyr::select(c("kode", "ild.5"))
+ild.5_stmp.2 <- omega_combo %>% dplyr::select(c("kode", "ild.5"))
+ild_stamp <- rbind(ild_stmp, ild.5_stmp.2)
+rm(ild_stmp, ild.5_stmp.2)
+ild_stamp <- ild_stamp[which(!duplicated(ild_stamp$kode)),]
+
+b_series <- left_join(b_series, ild_stamp, by = c("kode"))
+b_series <- filter(b_series, !is.na(ild.5))
+
+# series plot
+main.b <- ggplot(data = b_series) +
+  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = bathy, ymax = 1000)) +
+  geom_point(aes(x = DateTime_local, y = depth, color = temperature)) +
+  scale_color_cmocean(name = "thermal", limits = c(5,30)) +
+  geom_line(aes(x = DateTime_local, y = ild.5), color = "grey22", alpha = 0.8, size = 1.5) +
+  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = 200, ymax = 1000), color = "black", fill = "NA", alpha = 0.4) +
+  ylab("Depth (m)") +
+  xlab("Month") +
+  scale_y_reverse(limits = c(1000, 0)) +
+  theme_classic() +
+  theme(legend.position = "none")
+  #guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
+  #theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+
+# cumulative time-at-depth sub-plot (1)
+blue.cm.depth <- blue_series %>% group_by(dn) %>% count(depth)
+blue.cm.depth <- blue.cm.depth %>% mutate(percentage = (n/sum(n))*100)
+blue.cm.depth <- blue.cm.depth %>% mutate(cum.per = cumsum(percentage))
+
+sub.b <- ggplot(data = filter(blue.cm.depth, !is.na(dn))) +
+  geom_line(aes(x = cum.per, y = depth, color = dn)) +
+  scale_y_reverse(limits = c(2000, 0), breaks = c(2000, 1750, 1500, 1250, 1000, 750, 500, 250, 0), minor_breaks = 4) +
+  scale_x_continuous(breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100), position = "top") +
+  scale_color_manual(values = c("grey35", "grey10")) +
+  ylab("") +
+  xlab("Cumulative Time at Depth (%)") +
+  theme_grey() +
+  theme(legend.position = "none", plot.margin = unit(rep(0, 4), "cm"))
+
+# Time-at-depth Histogram sub-plot (2)
+# step 1: calculate the percentage of time in each depth bin for each day for each individual
+blue.bin.depth <- blue_series %>% group_by(ptt, Date, dn)
+blue.bin.depth$bin <- cut(blue.bin.depth$depth, breaks = bins, labels = c(seq(1:8)), include.lowest = TRUE)
+
+blue.bin.depth <- blue.bin.depth %>% count(bin, .drop = FALSE)
+blue.bin.depth <- blue.bin.depth %>% mutate(tot = sum(n))
+blue.bin.depth <- blue.bin.depth %>% filter(tot >= 144)
+blue.bin.depth <- blue.bin.depth %>% mutate(perc = (n / tot)*100)
+
+blue.bin.depth <- ungroup(blue.bin.depth) %>% group_by(ptt, dn, bin) %>% summarize(m = mean(perc))
+  
+# step 2: calculate the mean and standard error for each bin
+blue.bin.depth <- ungroup(blue.bin.depth) %>% group_by(dn, bin) %>% summarize(perc = mean(m), , se = sd(m))
+
+# step 3: graph it
+blue.bin.depth$bin <- as.numeric(blue.bin.depth$bin)
+sub.b <- ggplot() +
+  geom_col(data = filter(blue.bin.depth, dn == "d"), aes(x = bin, y = -perc), width = 1, fill = NA, color = "black") +
+  geom_errorbar(data = filter(blue.bin.depth, dn == "d"), aes(x = bin, ymin = (-perc), ymax = (-perc-se)), width = 0.5, color = "black", alpha = 0.6) +
+  geom_col(data = filter(blue.bin.depth, dn == "n"), aes(x = bin, y = perc), width = 1, fill = "grey", color= "black") +
+  geom_errorbar(data = filter(blue.bin.depth, dn == "n"), aes(x = bin, ymin = (perc), ymax = (perc+se)), width = 0.5, color = "black", alpha = 0.6) +
+  scale_x_reverse(breaks = c(0, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100","200","300", "400", "500", "2000")) +
+  scale_y_continuous(limits = c(-60,60), breaks = c(-60,-40,-20, 0,20,40,60), labels = c(60,40,20,0,20,40,60), position = "right") +
+  xlab("Depth (m)") +
+  ylab("Time at Depth (%)") +
+  coord_flip() +
+  theme_classic() + 
+  theme(plot.margin = unit(rep(0, 4), "cm"))
+
+
+#A viewport taking up a fraction of the plot area
+library(grid)
+vp <- viewport(width = 0.4, height = 0.4, x = 0.8, y = 0.3)
+#Just draw the plot twice
+png("BlueVertHabitat.png")
+main.b
+print(sub.b, vp = vp)
+dev.off()
+```
+
+``` {r series general vert. habitat: makos}
+mtuff <- read_etuff(makos[5])
+m_hdr <- get_header(makos[5])
+m_temp <- get_pdt(mtuff)
+m_interp <- interp_pdt(mtuff)
+m_series <- get_series(mtuff)
+m_series <- filter(m_series, !is.na(depth))
+m_series <- add_series_temp(m_series, m_temp, m_interp)
+m_series <- filter(m_series, !is.na(temperature))
+m_series$dn <- add_daynight(m_series, mtuff)
+m_series$ppt <- m_hdr$ptt
+rm(mtuff, m_hdr, m_temp, m_interp)
+m_series$dup <- m_series$DateTime_local
+m_series <- m_series %>% separate(dup, into = c("Date", "Time"), sep = "([ ])")
+m_series <- m_series %>% mutate(kode = paste(Date, ppt, sep = "_"))
+m_series$species <- "I.oxyrinchus"
+
+# add bathymetry
+m_series <- left_join(m_series, bathy_stamp, by = c("kode"))
+m_series$bathy <- m_series$bathy * -1
+
+# add mixed layer depth
+m_series <- left_join(m_series, ild_stamp, by = c("kode"))
+m_series <- filter(m_series, !is.na(ild.5))
+
+# series graph
+breaks <- as.POSIXct(c("2017-11-01 00:00:00", "2017-12-01 00:00:00", "2018-01-01 00:00:00"))
+
+main.m <- ggplot(data = m_series) +
+  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = bathy, ymax = 1000)) +
+  geom_point(aes(x = DateTime_local, y = depth, color = temperature)) +
+  scale_color_cmocean(name = "thermal", limits = c(5,30)) +
+  geom_line(aes(x = DateTime_local, y = ild.5), color = "grey22", alpha = 0.8, size = 1.5) +
+  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = 200, ymax = 1000), color = "black", fill = NA, alpha = 0.4) +
+  ylab("Depth (m)") +
+  xlab("Month") +
+  scale_y_reverse(limits = c(1000, 0)) +
+  scale_x_continuous(breaks = breaks, labels = c("Nov", "Dec", "Jan")) +
+  theme_classic() +
+  guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
+  theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+
+# cumulative time-at-depth graph (1)
+mako.cm.depth <- mako_series %>% group_by(dn) %>% count(depth)
+mako.cm.depth <- mako.cm.depth %>% mutate(percentage = (n/sum(n))*100)
+mako.cm.depth <- mako.cm.depth %>% mutate(cum.per = cumsum(percentage))
+
+sub.m <- ggplot(data = filter(mako.cm.depth, !is.na(dn))) +
+  geom_line(aes(x = cum.per, y = depth, color = dn)) +
+  scale_y_reverse(limits = c(2000, 0), breaks = c(2000, 1750, 1500, 1250, 1000, 750, 500, 250, 0), minor_breaks = 4) +
+  scale_x_continuous(breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100), position = "top") +
+  scale_color_manual(values = c("grey35", "grey10")) +
+  ylab("") +
+  xlab("Cumulative Time at Depth (%)") +
+  theme_classic() +
+  theme(legend.position = "none") + 
+  theme(legend.position = "none", plot.margin = unit(rep(0, 4), "cm"))
+
+#A viewport taking up a fraction of the plot area
+vp.m <- viewport(width = 0.4, height = 0.4, x = 0.8, y = 0.3)
+
+#Just draw the plot twice
+png("MakoVertHabitat.png")
+main.m
+print(sub.m, vp = vp.m)
+dev.off()
+
+# Time-at-depth Histogram sub-plot (2)
+# step 1: calculate the percentage of time in each depth bin for each day for each individual
+mako.bin.depth <- mako_series %>% group_by(ptt, Date, dn)
+mako.bin.depth$bin <- cut(mako.bin.depth$depth, breaks = bins, labels = c(seq(1:8)), include.lowest = TRUE)
+
+mako.bin.depth <- mako.bin.depth %>% count(bin, .drop = FALSE)
+mako.bin.depth <- mako.bin.depth %>% mutate(tot = sum(n))
+mako.bin.depth <- mako.bin.depth %>% filter(tot >= 144) # 144 because half of 288 (half of the whole day)
+mako.bin.depth <- mako.bin.depth %>% mutate(perc = (n / tot)*100)
+
+mako.bin.depth <- ungroup(mako.bin.depth) %>% group_by(ptt, dn, bin) %>% summarize(m = mean(perc))
+  
+# step 2: calculate the mean and standard error for each bin
+mako.bin.depth <- ungroup(mako.bin.depth) %>% group_by(dn, bin) %>% summarize(perc = mean(m), , se = sd(m))
+
+# step 3: graph it
+mako.bin.depth$bin <- as.numeric(mako.bin.depth$bin)
+sub.m <- ggplot() +
+  geom_col(data = filter(mako.bin.depth, dn == "d"), aes(x = bin, y = -perc), width = 1, fill = NA, color = "black") +
+  geom_errorbar(data = filter(mako.bin.depth, dn == "d"), aes(x = bin, ymin = (-perc), ymax = (-perc-se)), width = 0.5, color = "black", alpha = 0.6) +
+  geom_col(data = filter(mako.bin.depth, dn == "n"), aes(x = bin, y = perc), width = 1, fill = "grey", color= "black") +
+  geom_errorbar(data = filter(mako.bin.depth, dn == "n"), aes(x = bin, ymin = (perc), ymax = (perc+se)), width = 0.5, color = "black", alpha = 0.6) +
+  scale_x_reverse(breaks = c(0, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100","200","300", "400", "500", "2000")) +
+  scale_y_continuous(limits = c(-60,60), breaks = c(-60,-40,-20, 0,20,40,60), labels = c(60,40,20,0,20,40,60), position = "right") +
+  xlab("Depth (m)") +
+  ylab("Time at Depth (%)") +
+  coord_flip() +
+  theme_classic() +
+  theme(plot.margin = unit(rep(0, 4), "cm"))
+
+
+#Just draw the plot twice
+png("MakoVertHabitat2.png")
+main.m
+print(sub.m, vp = vp.m)
+dev.off()
+```
+
+# TAGGING LOCATION MAP
+``` {r Tagging locations and track maps}
+# makos
+for(i in 1:length(makos)) {
+  etuff <- read_etuff(makos[i])
+  track <- get_track(etuff)
+  track$ptt <- etuff$meta$ptt
+  track <- track %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
+  track <- track %>% mutate(
+    kode = paste(Date, ptt, sep = "_")
+  )
+  assign(paste("mtrack",i, sep = "_" ), track)
+  rm(etuff, track)
+  print(i)
+}
+
+mako_tracks <- rbind(mtrack_1, mtrack_2, mtrack_3, mtrack_4, mtrack_5, mtrack_6, mtrack_7)
+mako_tracks$species <- "I.oxyrinchus"
+
+# blues
+for(i in 1:length(blues)) {
+  etuff <- read_etuff(blues[i])
+  track <- get_track(etuff)
+  track$ptt <- etuff$meta$ptt
+  track <- track %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
+  track <- track %>% mutate(
+    kode = paste(Date, ptt, sep = "_")
+  )
+  assign(paste("btrack",i, sep = "_" ), track)
+  rm(etuff, track)
+  print(i)
+}
+
+blue_tracks <- rbind(btrack_1, btrack_2, btrack_3, btrack_4, btrack_5, btrack_6, btrack_7, btrack_8, btrack_9, btrack_10, btrack_11, btrack_12, btrack_13)
+blue_tracks$species <- "P.glauca"
+
+r <- c("/Volumes/A_DRIVE/bathy/northwest_atlantic.nc")
+r <- raster(r)
+r <- raster::aggregate(r, fact = 5)
+r_df <- as.data.frame(r, xy = TRUE)
+r_df <- r_df %>% filter(Elevation.relative.to.sea.level < 0)
+
+hue_pal()(2)
+
+ggplot(data = r_df) +
+  geom_sf(data = world) + 
+  #geom_raster(aes(x = x, y = y, fill = Elevation.relative.to.sea.level), show.legend = FALSE) +
+  geom_contour(aes(x = x, y = y, z = Elevation.relative.to.sea.level), color = "black", breaks = c(-1000)) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  scale_x_continuous(minor_breaks = c(-70, -50, -30)) +
+  scale_y_continuous(minor_breaks = c(10, 20, 30, 40)) +
+  coord_sf(xlim = c(-80, -35), ylim = c(9, 45)) +
+  #coord_quickmap() +
+  
+  geom_path(data = btrack_1, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_2, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_3, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_4, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_5, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_6, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_7, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_8, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_9, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_10, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_11, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_12, aes(longitude, latitude), color = "#00BFC4") +
+  geom_path(data = btrack_13, aes(longitude, latitude), color = "#00BFC4") +
+  
+  geom_point(data = btrack_1[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_2[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_3[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_4[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_5[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_6[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) +
+  geom_point(data = btrack_7[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_8[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_9[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_10[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_11[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = btrack_12[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) +
+  geom_point(data = btrack_13[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) +
+  
+  geom_point(data = btrack_1[nrow(btrack_1),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_2[nrow(btrack_2),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_3[nrow(btrack_3),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_4[nrow(btrack_4),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_5[nrow(btrack_5),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_6[nrow(btrack_6),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_7[nrow(btrack_7),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_8[nrow(btrack_8),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_9[nrow(btrack_9),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_10[nrow(btrack_10),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_11[nrow(btrack_11),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_12[nrow(btrack_12),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = btrack_13[nrow(btrack_13),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  
+  #geom_path(data = mtrack_1, aes(longitude, latitude), color = "#F8766D") +
+  #geom_path(data = mtrack_2, aes(longitude, latitude), color = "#F8766D") +
+  #geom_path(data = mtrack_3, aes(longitude, latitude), color = "#F8766D") +
+  geom_path(data = mtrack_4, aes(longitude, latitude), color = "#F8766D") +
+  geom_path(data = mtrack_5, aes(longitude, latitude), color = "#F8766D") +
+  geom_path(data = mtrack_6, aes(longitude, latitude), color = "#F8766D") +
+  geom_path(data = mtrack_7, aes(longitude, latitude), color = "#F8766D") +
+
+  
+  #geom_point(data = mtrack_1[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  #geom_point(data = mtrack_2[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  #geom_point(data = mtrack_3[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = mtrack_4[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = mtrack_5[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) + 
+  geom_point(data = mtrack_6[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) +
+  geom_point(data = mtrack_7[1,], aes(longitude, latitude), color = "green", shape = 1, size = 3) +
+
+  
+  #geom_point(data = mtrack_1[nrow(mtrack_1),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  #geom_point(data = mtrack_2[nrow(mtrack_2),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  #geom_point(data = mtrack_3[nrow(mtrack_3),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = mtrack_4[nrow(mtrack_4),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = mtrack_5[nrow(mtrack_5),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = mtrack_6[nrow(mtrack_6),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+  geom_point(data = mtrack_7[nrow(mtrack_7),], aes(longitude, latitude), color = "red", shape = 4, size = 3) +
+
+  
+  xlab("Longitude") +
+  ylab("Latitude") +
+  theme_linedraw() +
+  theme(element_blank())
+```
+# making map of % mesopelagic occupancy in a gridded raster
+See this youtube video for a helpful tutorial: https://www.youtube.com/watch?v=_bzqAuBnOag 
+``` {r % meso depth map}
+e <- extent(c(-80, -30, 5, 50))
+crs <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0")
+r <- raster(nrow = 50, ncol = 50, ext = e, crs = crs)
+p <- as(r@extent, 'SpatialPolygons')
+
+combo_series$meso <- cut(combo_series$depth, breaks = c(0, 200, 2000), labels = c(1,2), include.lowest = TRUE, right = FALSE)
+
+test <- combo_series %>% group_by(kode) %>% count(meso, .drop = FALSE)
+test <- test %>% group_by(kode) %>% mutate(tot = sum(n), perc = (n/tot) * 100)
+test <- filter(test, meso == 2)
+test <- test %>% dplyr::select(c("kode", "tot", "perc"))
+dive.stmp <- test %>% rename(meso = perc)
+
+combo_track <- left_join(combo_track, dive.stmp, by = c("kode"))
+
+mako_tracks <- filter(combo_track, species == "I.oxyrinchus")
+blue_tracks <- filter(combo_track, species == "P.glauca")
+
+makor <- raster::rasterize(mako_tracks[,c(5,3)], r, mako_tracks$meso, fun = mean)
+bluer <- raster::rasterize(blue_tracks[,c(5,3)], r, blue_tracks$meso, fun = mean)
+
+makor_df <- as.data.frame(makor, xy = TRUE)
+makor_df <- filter(makor_df, !is.na(layer))
+
+bluer_df <- as.data.frame(bluer, xy = TRUE)
+bluer_df <- filter(bluer_df, !is.na(layer))
+
+ggplot(data = makor_df) +
+  geom_tile(aes(x = x, y = y, fill = layer), color = "black") +
+  geom_sf(data = world) +
+  scale_fill_cmocean(name = "deep") +
+  #scale_fill_cmocean(name = "deep", limits = c(0, 100), breaks = c(20, 40, 60, 80), labels = c(20, 40, 60, 80)) +
+  coord_sf(xlim = c(-80, -35), ylim = c(10, 45)) +
+  #guides(fill=guide_colorbar(title="Mesopelagic (%)", direction = "horizontal")) +
+  theme_linedraw() +
+  xlab("")+
+  ylab("") +
+  theme(legend.position = "none")
+  #theme(legend.position = c(0.80, 0.085), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+
+ggplot(data = bluer_df) +
+  geom_tile(aes(x = x, y = y, fill = layer), color = "black") +
+  geom_sf(data = world) +
+  scale_fill_cmocean(name = "deep") +
+  #scale_fill_cmocean(name = "deep", limits = c(0, 100), breaks = c(20, 40, 60, 80), labels = c(20, 40, 60, 80)) +
+  coord_sf(xlim = c(-80, -35), ylim = c(10, 45)) +
+  #guides(fill=guide_colorbar(title="Mesopelagic (%)", direction = "horizontal")) +
+  theme_linedraw() +
+  xlab("")+
+  ylab("") +
+  theme(legend.position = "none")
+  #theme(legend.position = c(0.80, 0.085), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+
+```
+
+``` {r cleanup}
+rm(mtrack_1, mtrack_2, mtrack_3, mtrack_4, mtrack_5, mtrack_6, btrack_1, btrack_2, btrack_3, btrack_4, btrack_5, btrack_6, btrack_7, btrack_8, btrack_9, btrack_10, btrack_11, btrack_12, btrack_13)
+```
+
+# MAKING DATA SHOWCASE - SERIES TRACK OF BLUE SHARK DEPTH USE
+``` {r SHOWCASE - 1 BLUE TRACK DAY}
+# USING TRACKING DAY 2016-01-03 FROM BLUE SHARK 01
+
+test <- bseries_7
+test$duplicate <- test$DateTime_local
+test <- test %>% separate(duplicate, into = c("Date_Local", "Local_Time"), sep = "([ ])")
+test <- test %>% filter(Date == "2016-10-24")
+
+test <- inner_join(test,pdtb) 
+
+
+ggplot(data = test) + 
+  geom_point(aes(x = as_hms(Time), y = depth, color = temperature)) +
+  scale_color_viridis(option = "plasma") +
+  scale_y_reverse() +
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  ylab("Depth") +
+  xlab("Time") +
+  theme_classic()
+
+# TAD SUMMARY FOR THIS SERIES DATA - THIS IS FOR PRESENTATION PURPOSES ONLY BECAUSE THE VALUES OF THE LAST BIN ARE EDITED
+test <- omega_combo %>% filter(ptt.x == 141254 & Date.x == "2016-01-01")
+formated <- data.frame(
+  depth = c("0-10", "11-50", "51-100", "101-200", "201-300", "301-400", "401-500", "501-2000"),
+  bin = c(rep(1:8, each = 1)),
+  frequency = c(17.9,	13.7,	11.6,	16.8,	23.2,	3.2,	8.4,	0)
+)
+
+
+ggplot(data = formated, aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  xlab("Depth (m)") +
+  scale_x_reverse(breaks = c(1, 2, 3, 4, 5, 6, 7, 8), labels = c("0-10", "11-50", "51-100", "101-200", "201-300", "301-400", "401-500", "501-2000")) +
+  ylab("Proportion of Time") +
+  coord_flip() +
+  theme_classic()
+```
+
+## MAKING HIGH-RESOLUTION CLUSTERING DATASET ##
+```{r High res. cluster}
+# adjust the time resolution of tag 206771 to match others 
+toDelete <- c(seq(0,nrow(mseries_7), 2))
+mseries_7.short <- mseries_7[-toDelete,]
+rm(toDelete)
+
+mako_series <- rbind(mseries_4, mseries_5, mseries_6, mseries_7.short)
+combo_series <- rbind(mako_series, blue_series)
+
+# filter out tracking days with less than 75% of their data
+high_res <- combo_series %>% group_by(ptt) %>% count(Date)
+high_res <- high_res %>% filter(n >= 345) # there are 675 (928) tracking days with more than 75% (60%) of their series data
+
+high_res <- left_join(combo_series, high_res, by = c("Date", "ptt"))
+high_res <- high_res %>% filter(!is.na(n))
+# back-check
+unique(high_res$kode) # vector of length 675
+high_res %>% filter(species == "I.oxyrinchus") %>% count(kode) # 157 (194) tracking days
+high_res %>% filter(species == "P.glauca") %>% count(kode) # 518 (734) tracking days
+
+# count the net observations occur in each depth bin for day and night time
+high_res <- high_res %>% group_by(ptt, Date, dn) 
+daily.count <- high_res %>% count(Date)
+high_res <- high_res %>% summarise(
+  b1 = sum((depth < 10)),
+  b2 = sum((depth >= 10 & depth <50)),
+  b3 = sum((depth >= 50 & depth<100)),
+  b4 = sum((depth >= 100 & depth<200)),
+  b5 = sum((depth >= 200 & depth<300)),
+  b6 = sum((depth >= 300 & depth<400)),
+  b7 = sum((depth >= 400 & depth<500)),
+  b8 = sum((depth >= 500)),
+  sd = sd(depth),
+  total = sum(b1,b2,b3,b4,b5,b6,b7,b8)
+)
+
+# check that sum of rows matches daily.count values
+high_res <- ungroup(high_res)
+test3 <- high_res %>% dplyr::select(ptt, Date, dn, total)
+
+sum(daily.count$n != test3$total) # those look identical - moving on!
+rm(test3)
+# separate day and night time observations for each tracking day
+daytime <- high_res %>% filter(dn == "d")
+nightime <- high_res %>% filter(dn == "n")
+
+# convert net counts into percentages within each depth bin
+daytime <- daytime %>% transmute(
+  ptt = ptt,
+  Date = Date,
+  d.b1 = (b1/total) * 100,
+  d.b2 = (b2/total) * 100,
+  d.b3 = (b3/total) * 100,
+  d.b4 = (b4/total) * 100,
+  d.b5 = (b5/total) * 100,
+  d.b6 = (b6/total) * 100,
+  d.b7 = (b7/total) * 100,
+  d.b8 = (b8/total) * 100,
+  d.sd = sd
+)
+
+nightime <- nightime %>% transmute(
+  ptt = ptt,
+  Date = Date,
+  n.b1 = (b1/total) * 100,
+  n.b2 = (b2/total) * 100,
+  n.b3 = (b3/total) * 100,
+  n.b4 = (b4/total) * 100,
+  n.b5 = (b5/total) * 100,
+  n.b6 = (b6/total) * 100,
+  n.b7 = (b7/total) * 100,
+  n.b8 = (b8/total) * 100,
+  n.sd = sd
+)
+
+high_res <- inner_join(daytime, nightime, by = c("ptt", "Date"))
+rm(daytime, nightime)
+
+# now create a species stamp to apply to this object
+species_stmp <- data.frame(
+  ptt = c(141257, 163098, 163096, 141254, 141256, 141259, 106754, 133016, 133017, 133018, 133021, 141247, 141255, 163097, 141258, 154096, 78680,  78682,  78683, 206771),
+  species = c("I.oxyrinchus", "I.oxyrinchus", "I.oxyrinchus", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "P.glauca", "I.oxyrinchus", "I.oxyrinchus", "I.oxyrinchus", "I.oxyrinchus")
+)
+high_res <- left_join(high_res, species_stmp, by = c("ptt"))
+
+# add kode to high_res
+high_res <- high_res %>% mutate(
+  kode = paste(Date, ptt, sep = "_")
+)
+
+# add depth over location of each tracking day to high-resolution
+high_res <- inner_join(high_res, bathy_stamp, by = c("kode"))
+```
+
+## CLUSTER ANALYSIS 2.0: HIGH RESOLUTION TAD SUMMARIES ##
+This cluster anlysis is performed using the day/night summaries of time-at-depth with the further addition of depth standard deviation as a proxy for total vertical movement. These data are compiled from time-series depth information in chunk #15: 
+
+# Step 1: run the clusters with each species - can include species as a cluster component or not
+``` {r Heirarchical clustering}
+# remove tracking days over water more shallow than 1000 meters
+Ctad2 <- high_res %>% filter(depth <= -1000)
+# Create a dataframe of only cluster variables
+Ctad2 <- Ctad2 %>% dplyr::select(c("d.b1", "d.b2", "d.b3", "d.b4", "d.b5", "d.b6", "d.b7", "d.b8", "d.sd", "n.b1", "n.b2", "n.b3", "n.b4", "n.b5", "n.b6", "n.b7", "n.b8", "n.sd"))
+
+## Heirarchical Clustering
+# create a distance matrix
+combo_dist2 <- dist(Ctad2, method = "manhattan")
+# perform cluster assignment
+Clust2 <- hclust(combo_dist2, method = "average")
+```
+
+# Step 2: Assessing the statistical validity of the clusters
+``` {r NbClust tests}
+# CH INDEX:
+NbClust(data = Ctad2, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "ch")
+# Raw: 10
+
+# DUDA TEST: Smallest number of clusters which produces a critical value greater than the Duda score
+NbClust(data = Ctad2, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "duda")
+# Raw: 2 clusters 
+
+# C INDEX
+NbClust(data = Ctad2, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "cindex")
+# Raw: 7 clusters 
+
+# BEALE INDEX
+NbClust(data = Ctad2, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "beale")
+# Raw: 2 clusters 
+```
+
+Step 3: partition the data into its rightful cluster
+```{r fine-scale cluster assignment}
+combo_sub_grp2 <- dendextend::cutree(Clust2, k = 11)
+table(combo_sub_grp2)
+
+Ctad2$cluster <- combo_sub_grp2
+
+high_res$cluster <- combo_sub_grp2
+clust_stamp2 <- high_res %>% dplyr::select(kode, species, cluster)
+```
+
+## CLUSTER COMPARISONS
+# TAD profiles
+Create basic histograms of cluster tad profiles 
+``` {r TAD profiles}
+# create histograms to visualize the clusters
+daytime.combo_summ <- Ctad2 %>%
+  group_by(cluster) %>%
+  summarize(
+    d.one = mean(d.b1),
+    d.two = mean(d.b2),
+    d.three = mean(d.b3),
+    d.four = mean(d.b4),
+    d.five = mean(d.b5),
+    d.six = mean(d.b6),
+    d.seven = mean(d.b7),
+    d.eight = mean(d.b8),
+  )
+daytime.combo_summ <- dplyr::select(combo_summ, -c(cluster))
+
+format_tad_combo <- data.frame(
+  depth = c(rep(bins_max, times = 11)),
+  bin = c(rep(1:8, times = 11)),
+  frequency = c(as.numeric(daytime.combo_summ[1,]),
+                as.numeric(daytime.combo_summ[2,]),
+                as.numeric(daytime.combo_summ[3,]),
+                as.numeric(daytime.combo_summ[4,]),
+                as.numeric(daytime.combo_summ[5,]),
+                as.numeric(daytime.combo_summ[6,]),
+                as.numeric(daytime.combo_summ[7,]),
+                as.numeric(daytime.combo_summ[8,]),
+                as.numeric(daytime.combo_summ[9,]),
+                as.numeric(daytime.combo_summ[10,])
+                as.numeric(daytime.combo_summ[11,])),
+  cluster = c(rep(1:11, each = 8))
+)
+
+
+# CLUSTER 1
+format_tad_combo %>%
+  filter(cluster == 1) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 1") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy") +
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 1) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 1 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 2
+
+format_tad_combo %>%
+  filter(cluster == 2) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 2") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy") +
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 2) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 2 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 3
+
+format_tad_combo %>%
+  filter(cluster == 3) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 3") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 3) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 3 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 4
+
+format_tad_combo %>%
+  filter(cluster == 4) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 4") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 4) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 4 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 5
+
+format_tad_combo %>%
+  filter(cluster == 5) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 5") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 5) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 5 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 6
+
+format_tad_combo %>%
+  filter(cluster == 6) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 6") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 6) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 6 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 7
+
+format_tad_combo %>%
+  filter(cluster == 7) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 7") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 7) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 7 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 8
+
+format_tad_combo %>%
+  filter(cluster == 8) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 8") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 8) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 8 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+
+# CLUSTER 9
+
+format_tad_combo %>%
+  filter(cluster == 9) %>%
+  ggplot(aes(x = bin, y = frequency)) +
+  geom_col(fill = "grey22", color = "grey8", position = "dodge") +
+  ggtitle("Combo Shark Cluster 9") +
+  xlab("Depth") +
+  ylab("Proportion of Occupancy")
+  scale_x_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  coord_flip() +
+  theme_classic()
+
+cluster_species_freq %>% filter(cluster == 9) %>% 
+  ggplot() +
+  geom_col(aes(x = by, y = normalized, color = by, fill = by)) +
+  ggtitle("Combo Shark Cluster 9 Observations by Species") +
+  coord_flip() +
+  theme_classic()
+```
+
+# Omega Combo
+This chunk creates the omega_combo data frame with environmental data for each tracking day. 
+```{r omega combo}
+tad_combo <- tad_combo %>% mutate(
+  kode = paste(Date, ptt, sep = "_")
+)
+
+omega_mako <- read_excel("~/Desktop/blues-makos/data/omega_mako.xlsx")
+omega_blue <- read_excel("~/Desktop/blues-makos/data/omega_blue.xlsx")
+
+omega_mako <- omega_mako %>% dplyr::select(c(kode, Date.y, Time, localHour.y, x, y, sst, sst_sd, ssh, ssh_sd, eke, ild.5, n2, lunar, bathy, chloro))
+omega_blue <- omega_blue %>% dplyr::select(c(kode, Date.y, Time, localHour.y, x, y, sst, sst_sd, ssh, ssh_sd, eke, ild.5, n2, lunar, bathy, chloro))
+
+omega_combo <- rbind(omega_mako, omega_blue)
+
+omega_combo <- omega_combo %>% separate(kode, into = c("Date", "ptt"), sep = "([ ])")
+omega_combo <- omega_combo %>% mutate(
+  kode = paste(Date, ptt, sep = "_")
+)
+omega_combo <- omega_combo %>% dplyr::select(-c(Date, ptt))
+
+omega_combo <- inner_join(omega_combo, tad_combo, by = c("kode"))
+omega_combo$cluster <- as.factor(omega_combo$cluster)
+omega_combo$ptt <- as.factor(omega_combo$ptt)
+
+omega_combo <- omega_combo %>% separate(Date.y, into = c("Year", "Month", "Day"), sep = "([-])")
+
+```
+
+# Map of Cluster Locations
+Across the North Atlantic study area, where did each cluster occur along the track of each individual shark?
+```{r cluster maps}
+combo_track <- rbind(mako_tracks, blue_tracks)
+combo_track <- inner_join(combo_track, clust_stamp2, by = c("kode"))
+
+comm_track <- filter(combo_track, cluster <= 5)
+
+combo_track$cluster <- factor(combo_track$cluster, levels = c(5,1,2,4,3,6,7,8,9,10,11), ordered = TRUE)
+combo_track$species <- factor(combo_track$species)
+
+mako_tracks <- inner_join(mako_tracks, clust_stamp)
+blue_tracks <- inner_join(blue_tracks, clust_stamp)
+
+# bathymetry raster layer
+b <- c("/Volumes/A_DRIVE/bathy/bathy.nc")
+b <- raster(r)
+b <- raster::aggregate(r, fact = 5)
+b_df <- as.data.frame(r, xy = TRUE)
+b_df <- r_df %>% filter(Elevation.relative.to.sea.level < 0)
+
+# bathymetry
+ggplot() +
+  geom_raster(data = filter(r_df, Elevation.relative.to.sea.level < 0), aes(x = x, y = y, fill = Elevation.relative.to.sea.level)) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  geom_sf(data = world, color = "black") +
+  coord_sf(xlim = c(-80, -10), ylim = c(7,47), expand = FALSE) +
+  geom_point(data = comm_track, aes(longitude, latitude, color = cluster)) +
+  scale_color_cmocean(name = "deep", discrete = TRUE) + 
+  #facet_wrap(~species) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  theme_linedraw() +
+  theme(legend.position = "none")
+
+# cluster 1
+ggplot() +
+  geom_raster(data = filter(r_df, Elevation.relative.to.sea.level < 0), aes(x = x, y = y, fill = Elevation.relative.to.sea.level)) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  geom_sf(data = world, color = "black") +
+  coord_sf(xlim = c(-80, -10), ylim = c(7,47), expand = FALSE) +
+  geom_point(data = filter(combo_track, cluster == 1), aes(longitude, latitude, color = species.x)) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  ggtitle("Cluster 1") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# cluster 2
+ggplot() +
+  geom_raster(data = filter(r_df, Elevation.relative.to.sea.level < 0), aes(x = x, y = y, fill = Elevation.relative.to.sea.level)) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  geom_sf(data = world, color = "black") +
+  coord_sf(xlim = c(-80, -10), ylim = c(7,47), expand = FALSE) +
+  geom_point(data = filter(combo_track, cluster == 2), aes(longitude, latitude, color = species.x)) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  ggtitle("Cluster 2") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# cluster 3
+ggplot() +
+  geom_raster(data = filter(r_df, Elevation.relative.to.sea.level < 0), aes(x = x, y = y, fill = Elevation.relative.to.sea.level)) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  geom_sf(data = world, color = "black") +
+  coord_sf(xlim = c(-80, -10), ylim = c(7,47), expand = FALSE) +
+  geom_point(data = filter(combo_track, cluster == 3), aes(longitude, latitude, color = species.x)) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  ggtitle("Cluster 3") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# cluster 4
+ggplot() +
+  geom_raster(data = filter(r_df, Elevation.relative.to.sea.level < 0), aes(x = x, y = y, fill = Elevation.relative.to.sea.level)) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  geom_sf(data = world, color = "black") +
+  coord_sf(xlim = c(-80, -10), ylim = c(7,47), expand = FALSE) +
+  geom_point(data = filter(combo_track, cluster == 4), aes(longitude, latitude, color = species.x)) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  ggtitle("Cluster 4") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# cluster 5
+ggplot() +
+  geom_raster(data = filter(r_df, Elevation.relative.to.sea.level < 0), aes(x = x, y = y, fill = Elevation.relative.to.sea.level)) +
+  scale_fill_gradient(low = "black", high = "grey") +
+  geom_sf(data = world, color = "black") +
+  coord_sf(xlim = c(-80, -10), ylim = c(7,47), expand = FALSE) +
+  geom_point(data = filter(combo_track, cluster == 5), aes(longitude, latitude, color = species.x)) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  ggtitle("Cluster 5") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+# Dendrograms
+Create a dendrogram showing the separation of the different heirarchical clusters
+Note: PRUNED DENDROGRAM CODE DOES NOT SEEM TO BE FUNCTIONING PROPERLY IN ITS CURRENT STATE
+```{r dendrogram}
+plot(Clust2)
+# trying to figure out what parts of the dendrogram correspond to which clusters
+cluster_dendro <- as.dendrogram(Clust2) # create the dendrogram
+
+# assign clusters to dendrogram leaves
+leaf.stmp <- high_res$species 
+leaf.stmp <- leaf.stmp[order.dendrogram(cluster_dendro)] # figure out what species go to what labels
+
+leaf.stmp2 <- cluster_dendro %>% labels
+
+leaf.stmp3 <- high_res$cluster
+leaf.stmp3 <- leaf.stmp3[order.dendrogram(cluster_dendro)]
+
+leaf.stmp <- data.frame(
+  species = leaf.stmp,
+  label = leaf.stmp2,
+  cluster = leaf.stmp3
+)
+
+# prune leaves from rare clusters
+color_dendro <- cluster_dendro %>% prune(c("152", "596", "266", "748", "338", "561", "332", "335", "336", "337", "331", "333", "329", "492", "774"))
+
+color.leaf.stmp <- leaf.stmp %>% filter(cluster <= 5)
+
+labels_colors(color_dendro) <- color.leaf.stmp$cluster
+labels_colors(color_dendro)
+plot(cluster_dendro)
+
+# make a list of ggplot colors
+cmocean("deep")(5)
+show_col(cmocean("deep")(5))
+
+# make a pretty colored dendrogram: 
+## NOTE: THIS WORKS TO CREATE A DENDROGRAM THAT HAS BOTH SPECIES
+color_dendro <- color_branches(color_dendro, clusters = color.leaf.stmp$cluster, col = c("#FFFF5CFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF")) # general patterns - change 5 to 9 for lighter yellow 
+plot(color_dendro)
+```
+
+```{r species dendro}
+# assign dendrogram leaves to species
+blue.leaf.stmp <- leaf.stmp %>% filter(species == "P.glauca") 
+mako.leaf.stmp <- leaf.stmp %>% filter(species == "I.oxyrinchus")
+
+# separate blue and makos
+blue.dendro <- cluster_dendro %>% prune(as.character(mako.leaf.stmp$label))
+mako.dendro <- cluster_dendro %>% prune(as.character(blue.leaf.stmp$label))
+
+plot(blue.dendro)
+plot(mako.dendro)
+
+# prune leaves from rare clusters
+blue.dendro <- blue.dendro %>% prune(c("152", "596", "266", "748")) 
+
+mako.dendro <- mako.dendro %>% prune(c("338", "561", "332", "335", "336", "337", "331", "333", "329", "492", "774")) 
+
+blue.leaf.stmp <- blue.leaf.stmp %>% filter(cluster <= 5) # preserve leaf number and order
+mako.leaf.stmp <- mako.leaf.stmp %>% filter(cluster <= 5) # preserve leaf number and order
+# assign cluster to branches
+blue.dendro <- color_branches(blue.dendro, clusters = blue.leaf.stmp$cluster, col = c("#FDFECCFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF"))
+plot(blue.dendro)
+labels_colors(blue.dendro) <- blue.leaf.stmp$cluster # check that it worked
+labels_colors(blue.dendro) # yeah it fuckn did
+
+mako.dendro <- color_branches(mako.dendro, clusters = mako.leaf.stmp$cluster, col = c("#FDFECCFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF"))
+plot(mako.dendro)
+
+labels_colors(mako.dendro) <- mako.leaf.stmp$cluster # check that it worked
+labels_colors(mako.dendro)
+
+```
+
+## Heatmaps 
+Create heatmaps of vertical distribution within each cluster. Here, each column represents a destinct tracking day with different depth bins extending down into the water column along the y-axis. The color of each box represents the proportion of time that the animal spent in that depth bin on that particular day. 
+
+Step 1: recreate daily TAD summaries from series data (default summaries omit >200 days)
+```{r series to tad}
+# step 1: calculate the percentage of time in each depth bin for each day for each individual
+# blues
+blue.bin.depth <- blue_series %>% group_by(ptt, Date)
+blue.bin.depth$bin <- cut(blue.bin.depth$depth, breaks = bins, labels = c(seq(1:8)), include.lowest = TRUE)
+
+blue.bin.depth <- blue.bin.depth %>% count(bin, .drop = FALSE)
+blue.bin.depth <- blue.bin.depth %>% mutate(tot = sum(n))
+blue.bin.depth <- blue.bin.depth %>% filter(tot >= 280)
+blue.bin.depth <- blue.bin.depth %>% mutate(perc = (n / tot)*100)
+
+# makos
+mako.bin.depth <- mako_series %>% group_by(ptt, Date)
+mako.bin.depth$bin <- cut(mako.bin.depth$depth, breaks = bins, labels = c(seq(1:8)), include.lowest = TRUE)
+
+mako.bin.depth <- mako.bin.depth %>% count(bin, .drop = FALSE)
+mako.bin.depth <- mako.bin.depth %>% mutate(tot = sum(n))
+mako.bin.depth <- mako.bin.depth %>% filter(tot >= 280)
+mako.bin.depth <- mako.bin.depth %>% mutate(perc = (n / tot)*100)
+
+tad_combo <- rbind(mako.bin.depth, blue.bin.depth)
+tad_combo <- tad_combo %>% mutate(kode = paste(Date, ptt, sep = "_"))
+tad_combo <- inner_join(tad_combo, clust_stamp2, by = c("kode"))
+tad_combo <- ungroup(tad_combo)
+tad_combo$bin <- as.numeric(tad_combo$bin)
+```
+
+``` {r cluster heatmaps}
+# C1
+library(scales) # for the squish
+
+c1 <- filter(tad_combo, cluster == 1)
+date_stmp <- c1 %>% dplyr::select(c(Date, kode))
+date_stmp <- date_stmp[which(!duplicated(date_stmp$kode)),]
+date_stmp <- date_stmp %>% mutate(Row = c(seq(1:nrow(date_stmp))))
+c1 <- inner_join(c1, date_stmp, by = c("Date", "kode"))
+
+ggplot(data = c1) +
+  geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,75), oob = scales::squish) +
+  theme_minimal() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C2
+c2 <- filter(tad_combo, cluster == 2)
+date_stmp <- c2 %>% dplyr::select(c(Date, kode))
+date_stmp <- date_stmp[which(!duplicated(date_stmp$kode)),]
+date_stmp <- date_stmp %>% mutate(Row = c(seq(1:nrow(date_stmp))))
+c2 <- inner_join(c2, date_stmp, by = c("Date", "kode"))
+
+ggplot(data = c2) +
+  geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,75), oob = scales::squish) +
+  theme_minimal() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C3
+c3 <- filter(tad_combo, cluster == 3)
+date_stmp <- c3 %>% dplyr::select(c(Date, kode))
+date_stmp <- date_stmp[which(!duplicated(date_stmp$kode)),]
+date_stmp <- date_stmp %>% mutate(Row = c(seq(1:nrow(date_stmp))))
+c3 <- inner_join(c3, date_stmp, by = c("Date", "kode"))
+
+ggplot(data = c3) +
+  geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,75), oob = scales::squish) +
+  theme_minimal() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C4
+c4 <- filter(tad_combo, cluster == 4)
+date_stmp <- c4 %>% dplyr::select(c(Date, kode))
+date_stmp <- date_stmp[which(!duplicated(date_stmp$kode)),]
+date_stmp <- date_stmp %>% mutate(Row = c(seq(1:nrow(date_stmp))))
+c4 <- inner_join(c4, date_stmp, by = c("Date", "kode"))
+
+ggplot(data = c4) +
+  geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,75), oob = scales::squish) +
+  theme_minimal() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+# C5
+c5 <- filter(tad_combo, cluster == 5)
+date_stmp <- c5 %>% dplyr::select(c(Date, kode))
+date_stmp <- date_stmp[which(!duplicated(date_stmp$kode)),]
+date_stmp <- date_stmp %>% mutate(Row = c(seq(1:nrow(date_stmp))))
+c5 <- inner_join(c5, date_stmp, by = c("Date", "kode"))
+
+ggplot(data = c5) +
+  geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
+  scale_fill_viridis(limits = c(0,75), oob = scales::squish) +
+  theme_minimal() +
+  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+  theme(aspect.ratio = 20/10)
+
+```
+
+# Proportion time at depth accross daylight hours heatmaps
+This might work right out of the box with the series data_frame I made earlier...
+Note: MAKE SURE TO USE LOCAL TIME
+
+``` {r TAD daylight}
+combo_series <- rbind(mako_series, blue_series)
+combo_series$Local_Time <- as_hms(combo_series$Local_Time)
+cluster_series <- inner_join(combo_series, clust_stamp2, by = "kode")
+unique(cluster_series$kode)
+
+cluster_series <- filter(cluster_series, cluster <= 5)
+cluster_series$cluster <- factor(cluster_series$cluster, levels = c(5,1,2,4,3), ordered = TRUE) 
+
+# daily cluster kernal density heatmaps
+ggplot(data = filter(cluster_series, cluster == 5), aes(x = Local_Time, y = depth) ) +
+  stat_density_2d(aes(fill = ((..ndensity..))), geom = "raster", contour = FALSE) +
+  facet_wrap(~cluster) +
+  scale_fill_viridis(option = "magma") + 
+  labs(fill = "Density") +
+  scale_y_reverse(breaks = c(0, 500, 1000, 1500), labels = c("0", "500", "1000", "1500")) +
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  xlab("Time of Day") +
+  ylab("Depth(m)") +
+  theme_minimal()
+
+# daily cluster point maps
+ggplot(data = cluster_series) +
+  geom_point(aes(x = Local_Time, y = depth, color = species.x), alpha = 0.01) +
+  facet_grid(cluster ~ species.x) + 
+  scale_y_reverse(limits = c(1000, 0), breaks = c(1000, 500, 0)) +
+  ylab("Depth (m)") +
+  xlab ("Local Time") +
+  facet_grid(species.x~cluster) +
+  theme_classic() +
+  theme(legend.position = "bottom")
+
+# test stat_bin_2d
+ggplot(data = cluster_series, aes(x = Local_Time, y = depth) ) +
+  stat_bin_2d(aes(fill = (log10((..ndensity..)+0.01))), geom = "tile", bins = c(100, 100)) +
+  scale_fill_cmocean(name = "dense") + 
+  labs(fill = "Relative Density (log)") +
+  scale_y_reverse(limits = c(1000, 0), breaks = c(0, 500, 1000), labels = c("0", "500", "1000")) +
+  scale_x_continuous(breaks = c(21600, 64800), labels = c("06:00", "18:00")) +
+  xlab("Local Time") +
+  ylab("Depth (m)") +
+  facet_grid(species.x~cluster) +
+  theme_linedraw()
+```
+
+# Series Plots - Mass Production
+Generate plots of series data for all tracking days w/ more than 75% data coverage
+``` {r series assemly line}
+# update line 1481 and line 1505 with appropriate cluster number
+c1 <- cluster_series %>% filter(cluster == 5)
+series_dates <- unique(c1$Date) 
+
+for(i in 1:length(series_dates)) {
+  day <- c1 %>% filter(Date == series_dates[i])
+  sharks <- day %>% count(ptt)
+  sharks <- sharks %>% filter(n >= 260)
+  ptt_n <- c(sharks$ptt)
+  full_series <- data.frame()
+  for(i in 1:length(ptt_n)) {
+    tryCatch({
+    x <- day %>% filter(ptt == ptt_n[i])
+    full_series <- rbind(full_series, x)
+    rm(x)
+  }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+  }
+ if (nrow(full_series) != 0) {
+ ggplot() + 
+    geom_line(data = filter(full_series, species.x == "P.glauca"), aes(x = DateTime, y = depth), color = "#00BFC4") +
+    geom_line(data = filter(full_series, species.x == "I.oxyrinchus"), aes(x = DateTime, y = depth), color = "#F8766D") +
+    scale_y_reverse() +
+    facet_grid(ptt~.) +
+    theme_classic()
+  
+  ggsave(paste("~/Desktop/blues-makos/images/cluster_5/", full_series[1,1], ".png", sep = ""))
+ 
+  rm(day, sharks, ptt_n, full_series)
+ }
+  else {
+    rm(day, sharks, ptt_n, full_series)
+  }
+}
+
+```
+
+## EXTRACTING ENVIRONMENTAL DATA ##
+# Cam code
+Here's a modified example of some extraction code which Cam wrote for me a while back:
+```{r lucky mako 7}
+# adding the 7th mako to omega_combo
+# separate tad and track data
+
+m7 <- tad_mako %>% filter(ptt == 206771)
+m7 <- m7 %>% mutate(
+  kode = paste(Date, ptt, sep = "_")
+)
+
+## get the track and trim to unique DAYS (not unique date-times as that just introduces duplication into the loop below)
+etuff <- read_etuff(makos[7])
+track7 <- get_track(etuff)
+track7$dup <- track7$DateTime
+track7 <- track7 %>% separate(dup, into = c("Date", "Time"), sep = "([ ])")
+track7$ptt <- etuff$meta$ptt
+track7 <- track7 %>% mutate(
+  kode = paste(Date, ptt, sep = "_")
+)
+track7 <- track7 %>% dplyr::select(c("kode", "latitude", "longitude", "Date", "DateTime"))
+track7$day <- as.Date(track7$DateTime, tz='UTC')
+track7 <- track7[which(!duplicated(track7$day)),]
+# now stick them together
+m7 <- left_join(m7, track7)
+```
+
+``` {r HYCOM}
+# create a stamp with coordinates for each tracking day
+position.stmp <- combo_track %>% dplyr::select(latitude, longitude, kode)
+position.stmp <- position.stmp[which(!duplicated(position.stmp$kode)),] # remove duplicates in days w. more than one location
+# apply position data to high_res data frame
+high_res <- inner_join(high_res, position.stmp, by = c("kode"))
+# extract environmental files from HYCOM for each unique date
+## create an index of new columns where you want the environmental data to go. I happen to know this outputs 15 cols so I cheated...
+col_idx <- c((ncol(high_res) + 1):(ncol(high_res) + 16))
+
+t1 <- Sys.time()
+for (tt in 1:nrow(high_res)){
+  data <- unlist(facet_hycom(xpos = high_res$longitude[tt],
+                                        ypos = high_res$latitude[tt],
+                                        tpos = as.Date(high_res$Date[tt]), ## needs to be of class 'Date'
+                                        xlen = 0.25, ## these "errors" need to be approx this size to allow the calculations to run successfully
+                                        ylen = 0.25, 
+                                        varName = c('water_temp', 'water_u', 'water_v','surf_el','salinity')))
+  data <- as.data.frame(t(data))
+  high_res[tt,col_idx] <- data
+  rm(data)
+}
+
+t2 <- Sys.time()
+t2 - t1
+```
+
+```{r lucky mako 7: BATHYMETRY}
+# extracting Bathymetry data
+nc_data <- nc_open("/Volumes/A_DRIVE/bathy/northwest_atlantic.nc")
+
+lon <- ncvar_get(nc_data, "lon")
+lat <- ncvar_get(nc_data, "lat")
+
+depth.array <- ncvar_get(nc_data, "elevation")
+# find out what value is input for misssing data
+fillvalue <- ncatt_get(nc_data, "elevation", "_FillValue")
+# close the NETCDF file
+nc_close(nc_data) 
+# get model points for extraction from LiveOcean #
+lon_psat <- m7$longitude
+lat_psat <- m7$latitude
+
+extraction_points <- data.frame (
+  longitude = c(lon_psat),
+  latitude = c(lat_psat)
+)
+# transform the array into a raster layer
+r_brick <- raster(depth.array, xmn=min(lat), xmx=max(lat), ymn=min(lon), ymx=max(lon), crs=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0"))
+# check orrientation
+plot(r_brick)
+# correct the orrientation of the raster brick
+r_brick <- flip(t(r_brick), direction='y')
+
+# extracting points from the brick
+bathy <- data.frame()
+
+for(i in 1:nrow(extraction_points)) {
+  point_series <- raster::extract(r_brick, extraction_points[i,], method='simple')
+  data <- data.frame(
+    point = c(i),
+    lat = extraction_points[i,2], 
+    lon = extraction_points[i,1],
+    depth = c(point_series)
+  )
+  
+  bathy <- rbind(bathy, data)
+  
+  rm(data)
+  print(i)
+}
+
+# cleanup and formatting
+bathy <- bathy %>% filter(!is.na(depth))
+
+m7 <- cbind(m7, bathy)
+m7 <- m7[,-c(34:36)]
+
+rm(r_brick) #cleanup
+```
+
+```{r CHLOROPHYLL}
+## Get existing chlorophyll data
+chloro.stmp <- omega_combo %>% dplyr::select(c("kode", "chloro"))
+blank <- left_join(high_res, chloro.stmp, by = c("kode"))
+blank <- filter(blank, is.na(chloro))
+
+## Get VGPM data for missing days
+source('~/Desktop/blues-makos/analyzePSAT/R/vgpm.load.r')
+library(raster)
+
+tVec <- c(seq.Date(as.Date('2015-10-01'), as.Date('2016-04-01'), by='month'),
+          seq.Date(as.Date('2016-09-01'), as.Date('2017-03-01'), by='month'),
+          seq.Date(as.Date('2017-11-01'), as.Date('2018-01-01'), by='month'),
+          seq.Date(as.Date('2021-10-01'), as.Date('2021-12-01'), by='month'))
+
+for (i in 1:length(tVec)){
+  doy <- lubridate::yday(tVec[i])
+  if (nchar(doy) == 1) doy <- paste('00', doy, sep='')
+  if (nchar(doy) == 2) doy <- paste('0', doy, sep='')
+  yrday <- paste(lubridate::year(tVec[i]), doy, sep='')
+  url <- paste('http://orca.science.oregonstate.edu/data/1x2/monthly/vgpm.r2018.m.chl.m.sst/xyz/vgpm.', yrday, '.all.xyz.gz', sep='')
+  filename <- paste('vgpm.', yrday, '.all.xyz.gz', sep='')
+  #repeat{
+  curl::curl_download(url, filename, quiet=FALSE)
+  
+  #  tryCatch({
+  #    err <- try(RNetCDF::open.nc(filename), silent = T)
+  #  }, error=function(e){print(paste('ERROR: Download of data at ', yrday, ' failed. Trying call to server again.', sep = ''))})
+  #  if(class(err) != 'try-error') break
+  #}
+  print(paste(i))
+}
+
+fileList <- list.files("~/Desktop/blues-makos/chloro/", full.names = TRUE)
+for (i in 1:length(fileList)){
+  system(paste('gunzip -k ', fileList[i], sep=''))
+}
+
+for (i in 1:(length(tVec))){
+  t1 <- Sys.time()
+  doy <- lubridate::yday(tVec[i])
+  if (nchar(doy) == 1) doy <- paste('00', doy, sep='')
+  if (nchar(doy) == 2) doy <- paste('0', doy, sep='')
+  yrday <- paste(lubridate::year(tVec[i]), doy, sep='')
+  # load vgpm and rasterize
+  vgpm <- vgpm.load(file=paste('data/raw/chloro/vgpm.', yrday, '.all.xyz', sep=''), w.lon = -180, e.lon = 180,
+                    n.lat = 90, s.lat = -90, raster = TRUE)
+  vgpm <- vgpm / 1000 # convert from mg to g C/ m^2 / d^1
+  #t2 <- Sys.time()
+  #print(paste(t2 - t1)) # print how long it took
+  crs_geo <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"
+  crs(vgpm) <- crs_geo
+  t3 <- Sys.time()
+  vgpm_proj <- projectRaster(vgpm, crs=crs_geo)
+
+  #plot(vgpm_proj)
+  
+  e <- extent(-80, -35, 0, 50)
+  e <- as(e, 'SpatialPolygons')
+  crs(e) <- crs_geo
+  
+  vgpm_new <- mask(vgpm_proj, e)
+  vgpm_new <- projectRaster(vgpm_new, crs=crs_geo)
+  
+  writeRaster(vgpm_new, file=paste('/Volumes/A_DRIVE/Chlorophyll/vgpm.', yrday, '.all.grd', sep=''), overwrite=T)
+  rm(vgpm); rm(vgpm_new); rm(vgpm_proj); gc()
+  t4 <- Sys.time()
+  
+  print(paste(i, 'took', round(t4 - t1), 'secs'))
+}
+#plot(vgpm); world(add=T); plot(e, add=T)
+
+fileList <- list.files("/Volumes/A_DRIVE/Chlorophyll/", full.names = TRUE)
+fileList <- fileList[grep('.gri', fileList)]
+
+# extract monthly chlorophyll values for each track location
+tVec <- c(seq.Date(as.Date('2015-10-01'), as.Date('2016-04-01'), by='month'),
+          seq.Date(as.Date('2016-09-01'), as.Date('2017-03-01'), by='month'),
+          seq.Date(as.Date('2017-11-01'), as.Date('2018-01-01'), by='month'),
+          seq.Date(as.Date('2021-10-01'), as.Date('2021-12-01'), by='month')
+)
+
+data <- data.frame()
+
+for(i in 1:(length(tVec)-1)) {
+  doy <- lubridate::yday(tVec[i])
+  if (nchar(doy) == 1) doy <- paste('00', doy, sep='')
+  if (nchar(doy) == 2) doy <- paste('0', doy, sep='')
+  yrday <- paste(lubridate::year(tVec[i]), doy, sep='')
+  file <- fileList[grep(yrday, fileList)]
+  c_brick <- raster(file)
+  sub1 <- blank[blank$Date >= tVec[i] & blank$Date < tVec[i+1],]
+  extraction_points <- data.frame(
+    x = sub1$longitude,
+    y = sub1$latitude
+  )
+  for(tt in 1:nrow(extraction_points)) {
+    point_series <- raster::extract(c_brick, extraction_points[tt,], method='simple')
+    sub1[tt,43] <- point_series
+  }
+  
+  data <- rbind(data, sub1)
+  print(i)
+}
+
+blank <- data
+
+# check to see if it worked
+test <- left_join(high_res, chloro.stmp, by = c("kode"))
+test <- test %>% filter(!is.na(chloro))
+test <- rbind(test, blank)
+
+sum(high_res[order(high_res$kode),] != test[order(test$kode),-c(43)]) # this should equal 0
+
+# now combine the data for real
+high_res <- left_join(high_res, chloro.stmp, by = c("kode"))
+high_res <- high_res %>% filter(!is.na(chloro))
+high_res <- rbind(high_res, blank)
+
+rm(data) # cleanup
+```
+
+```{r LUNAR}
+high_res$lunar <- lunar::lunar.illumination(as.Date(high_res$Date), shift = 6)
+```
+
+# Downloading data from HYCOM
+``` {r HYCOM}
+sp.lim <- list(lonmin = -79, lonmax = -10, latmin = 7, latmax = 48)
+
+get.env(uniqueDates = as.POSIXct("2015-11-24"), filename = "hycom", type = "hycom", spatLim = sp.lim, save.dir = '~/Desktop/')
+```
+
+## MULTINOMIAL LOGISTIC REGRESSION ANALYSIS ##
+# Cross correlation analysis
+Determine if any of your environmental variables are colinear
+```{r formatting}
+combo_mod <- high_res %>% dplyr::select(c(Date, kode, species, ptt, cluster, latitude, longitude, depth, sst, sst_sd, ssh, ssh_sd, eke, ild.5, n2, chloro, lunar))
+combo_mod <- combo_mod %>% filter(cluster != 6 & cluster != 7 & cluster != 8 & cluster != 9 & cluster != 10 & cluster != 11)
+
+combo_mod$clus2 <- relevel(as.factor(combo_mod$cluster), ref = 1)
+combo_mod$species <- relevel(as.factor(combo_mod$species), ref = "P.glauca")
+combo_mod$ptt <- factor(combo_mod$ptt)
+
+# convert lunar to factor variable based on phase
+full <- combo_mod %>% filter(lunar >= 0.75)
+full$lunar <- 1
+mid <- combo_mod %>% filter(lunar < 0.75)
+mid$lunar <- 0
+combo_mod <- rbind(full, mid)
+combo_mod$lunar <- relevel(as.factor(combo_mod$lunar), ref = 0) # ORIGINAL TRAINING DONE ON REF = 1
+rm(full, mid)
+```
+
+```{r correlation test}
+c.cor <- cor(combo_mod[,c(8:17)], use = "complete.obs")
+library(PerformanceAnalytics)
+chart.Correlation(combo_mod[,c(8:17)])
+```
+
+## MIXED EFFECTS MODEL
+# FORWARD SELECTION 1
+Identify the best single predictive variable for cluster placement 
+``` {r MFS1}
+m.mod01 <- mblogit(clus2 ~ sst, random = ~1|ptt, data = combo_mod)
+m.mod02 <- mblogit(clus2 ~ sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod03 <- mblogit(clus2 ~ ssh, random = ~1|ptt, data = combo_mod)
+m.mod04 <- mblogit(clus2 ~ ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod05 <- mblogit(clus2 ~ eke, random = ~1|ptt, data = combo_mod)
+m.mod06 <- mblogit(clus2 ~ ild.5, random = ~1|ptt, data = combo_mod)
+m.mod07 <- mblogit(clus2 ~ n2, random = ~1|ptt, data = combo_mod)
+m.mod08 <- mblogit(clus2 ~ chloro, random = ~1|ptt, data = combo_mod)
+m.mod09 <- mblogit(clus2 ~ lunar, random = ~1|ptt, data = combo_mod)
+m.mod10 <- mblogit(clus2 ~ depth, random = ~1|ptt, data = combo_mod)
+m.mod11 <- mblogit(clus2 ~ species, random = ~1|ptt, data = combo_mod)
+
+## RESEARCH NOTE ## : The random effect of individual dramatically improves model performance; however, species alone is a poor predictor of shark behavior. Because the random effect of individual seems to be highly influential - whether combined with species or not - I will include it in all the models (in fact, when the random effect is included alone in a model, it outperforms all the solo fixed effects terms).
+
+vec_AIC <- AIC(m.mod01, m.mod02, m.mod03, m.mod04, m.mod05, m.mod06, m.mod07, m.mod08, m.mod09, m.mod10, m.mod11)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Sea-surface height is best predictor
+rm(m.mod01, m.mod02, m.mod04, m.mod05, m.mod06, m.mod07, m.mod08, m.mod09, m.mod10, m.mod11) # cleanup
+```
+
+# FORWARD SELECTION 2
+Identify the second best single predictive variable for cluster placement 
+``` {r MFS2}
+m.mod1.1 <- mblogit(clus2 ~ ssh + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.2 <- mblogit(clus2 ~ ssh + ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.3 <- mblogit(clus2 ~ ssh + eke, random = ~1|ptt, data = combo_mod)
+m.mod1.4 <- mblogit(clus2 ~ ssh + ild.5, random = ~1|ptt, data = combo_mod)
+m.mod1.5 <- mblogit(clus2 ~ ssh + n2, random = ~1|ptt, data = combo_mod)
+m.mod1.6 <- mblogit(clus2 ~ ssh + lunar, random = ~1|ptt, data = combo_mod)
+m.mod1.7 <- mblogit(clus2 ~ ssh + species, random = ~1|ptt, data = combo_mod)
+
+vec_AIC <- AIC(m.mod03, m.mod1.1, m.mod1.2, m.mod1.3, m.mod1.4, m.mod1.5, m.mod1.6, m.mod1.7)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Buoyancy Frequency is the next best predictor
+rm(m.mod1.1, m.mod1.2, m.mod1.3, m.mod1.4, m.mod1.6, m.mod1.7) # cleanup
+```
+
+# FORWARD SELECTION 3
+Identify the third best single predictive variable for cluster placement 
+``` {r MFS3}
+m.mod1.1.1 <- mblogit(clus2 ~ ssh + n2 + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.2 <- mblogit(clus2 ~ ssh + n2 + ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.3 <- mblogit(clus2 ~ ssh + n2 + eke, random = ~1|ptt, data = combo_mod)
+m.mod1.1.4 <- mblogit(clus2 ~ ssh + n2 + lunar, random = ~1|ptt, data = combo_mod)
+m.mod1.1.5 <- mblogit(clus2 ~ ssh + n2 + species, random = ~1|ptt, data = combo_mod)
+
+vec_AIC <- AIC(m.mod1.5, m.mod1.1.1, m.mod1.1.2, m.mod1.1.3, m.mod1.1.4, m.mod1.1.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Lunar illumination is the next best predictor
+rm(m.mod1.1.1, m.mod1.1.2, m.mod1.1.3, m.mod1.1.5) # cleanup
+```
+
+# FORWARD SELECTION 4
+Identify the fourth best single predictive variable for cluster placement 
+``` {r MFS4}
+m.mod1.1.1.1 <- mblogit(clus2 ~ ssh + n2 + lunar + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.2 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.3 <- mblogit(clus2 ~ ssh + n2 + lunar + eke, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.4 <- mblogit(clus2 ~ ssh + n2 + lunar + species, random = ~1|ptt, data = combo_mod)
+
+vec_AIC <- AIC(m.mod1.1.4, m.mod1.1.1.1, m.mod1.1.1.2, m.mod1.1.1.3, m.mod1.1.1.4)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# Sea-surface height standard deviation is best predictor
+summary(m.mod1.1.1.2)
+rm(m.mod1.1.1.1, m.mod1.1.1.3, m.mod1.1.1.4) # cleanup
+```
+
+# FORWARD SELECTION 5
+Identify the fifth best single predictive variable for cluster placement 
+``` {r MFS5}
+m.mod1.1.1.1.1 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + sst_sd, random = ~1|ptt, data = combo_mod)
+m.mod1.1.1.1.2 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + species, random = ~1|ptt, data = combo_mod)
+
+vec_AIC <- AIC(m.mod1.1.1.2, m.mod1.1.1.1.1, m.mod1.1.1.1.2)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# the previous iteration is most likely the best model
+summary(m.mod1.1.1.1.2)
+rm(m.mod1.1.1.1.1, m.mod1.1.1.1.2) # cleanup
+```
+
+# M.E. Including Interaction Terms
+```{r ME Interactions}
+# 1.
+m.mod0.1 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:n2, random = ~1|ptt, data = combo_mod)
+m.mod0.2 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar, random = ~1|ptt, data = combo_mod)
+m.mod0.3 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod0.4 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + n2:lunar, random = ~1|ptt, data = combo_mod)
+m.mod0.5 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + n2:ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod0.6 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + lunar:ssh_sd, random = ~1|ptt, data = combo_mod)
+
+vec_AIC <- AIC(m.mod1.1.1.2, m.mod0.1, m.mod0.2, m.mod0.3, m.mod0.4, m.mod0.5, m.mod0.6)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# interaction 2 is marginally best but substantially better than the original model
+summary(m.mod0.2)
+rm( m.mod0.1, m.mod0.3, m.mod0.4, m.mod0.5, m.mod0.6)
+
+# 2. 
+m.mod0.2.1 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:n2, random = ~1|ptt, data = combo_mod)
+m.mod0.2.2 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod0.2.3 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + n2:lunar, random = ~1|ptt, data = combo_mod)
+m.mod0.2.4 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + n2:ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod0.2.5 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh_sd:lunar, random = ~1|ptt, data = combo_mod)
+
+vec_AIC <- AIC(m.mod0.2, m.mod0.2.1, m.mod0.2.2, m.mod0.2.3, m.mod0.2.4, m.mod0.2.5)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+
+# interaction 1 is far and away the best
+summary(m.mod0.2.1)
+rm(m.mod0.2.2, m.mod0.2.3, m.mod0.2.4, m.mod0.2.5)
+
+# 3. 
+m.mod0.2.1.1 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:n2 + ssh:ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod0.2.1.2 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:n2 + n2:lunar, random = ~1|ptt, data = combo_mod)
+m.mod0.2.1.3 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:n2 + n2:ssh_sd, random = ~1|ptt, data = combo_mod)
+m.mod0.2.1.4 <- mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:n2 + lunar:ssh_sd, random = ~1|ptt, data = combo_mod)
+
+vec_AIC <- AIC(m.mod0.2.1, m.mod0.2.1.1, m.mod0.2.1.2, m.mod0.2.1.3, m.mod0.2.1.4)[,2]
+dAIC <- vec_AIC - min(vec_AIC)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+AICw
+# interaction 4 is the best
+summary(m.mod0.2.1.4)
+# however, adding this variable makes ssh_sd insignificant - stopping at the previous itteration
+```
+
+# The mixed effet multinomial logistic regression model predicting blue and mako shark cluster placement is: 
+m.mod0.2.1
+
+mblogit(clus2 ~ ssh + n2 + lunar + ssh_sd + ssh:lunar + ssh:n2, random = ~1|ptt, data = combo_mod)
+
+FIXED VARIABLES:
+- Sea-surface Height
+- Buoyancy Frequency
+- Lunar Illumination
+- Sea-surface Height Standard Deviation
+
+INTERACTIONS:
+- Sea-surface Height : Lunar Illum. 
+(sharks may rely on eddies more during full moons when scattering layers are deeper)
+- Sea-surface Height : Buoyancy Freq. 
+(sharks may not rely on eddies as much in regions where the water is well mixed)
+
+RANDOM VARIABLES:
+- Individual
+
+# Examining Model Results
+Lets consider how the probability of each cluster changes with each individual predictor while holding the other model variables at their mean values
+```{r model results}
+# Sea-surface height
+low <- data.frame(
+  ssh = rep(seq(-1,1, 0.025), times = 34), 
+  lunar = as.factor(rep(rep(c(0,1), each = 81), times = 17)),
+  n2 = rep(c(1.492e-05), times = 2754),
+  ssh_sd = rep(c(0.02605838), times = 2754),
+  
+  ptt = as.factor(rep(c("106754", "133016", "133017", "133018", "133021", "141247", "141254", "141255", "141256", "141257", "141258", "141259", "154096", "163096", "163097", "163098", "206771"), each = 162))
+  )
+high <- data.frame(
+  ssh = rep(seq(-1,1, 0.025), times = 34), 
+  lunar = as.factor(rep(rep(c(0,1), each = 81), times = 17)),
+  n2 = rep(c(7.461e-05), times = 2754),
+  ssh_sd = rep(c(0.02605838), times = 2754),
+  
+  ptt = as.factor(rep(c("106754", "133016", "133017", "133018", "133021", "141247", "141254", "141255", "141256", "141257", "141258", "141259", "154096", "163096", "163097", "163098", "206771"), each = 162))
+  )
+
+p_ssh <- rbind(low, high)
+rm(low, high)
+p_ssh <- cbind(p_ssh, predict(m.mod0.2.1, newdata = p_ssh, type = "response", se.fit = FALSE))
+lssh <- melt(p_ssh, id.vars = c("ssh", "lunar", "n2", "ssh_sd", "ptt"), measure.vars = c("1", "2", "3", "4", "5"))
+lssh$lunar <- factor(lssh$lunar)
+lssh$n2 <- factor(lssh$n2)
+species_stmp$ptt <- factor(species_stmp$ptt)
+lssh <- left_join(lssh, species_stmp)
+
+op1.1 <- lssh %>% filter(lunar == 0 & n2 == 1.492e-05)
+op1.2 <- lssh %>% filter(lunar == 0 & n2 == 7.461e-05)
+op2.1 <- lssh %>% filter(lunar == 1 & n2 == 1.492e-05)
+op2.2 <- lssh %>% filter(lunar == 1 & n2 == 7.461e-05)
+
+op1.1 <- op1.1 %>% group_by(lunar, n2, ssh, variable, species) %>% summarize(LL = min(value), UL = max(value), value = mean(value))
+op1.2 <- op1.2 %>% group_by(lunar, n2, ssh, variable, species) %>% summarize(LL = min(value), UL = max(value), value = mean(value))
+op2.1 <- op2.1 %>% group_by(lunar, n2, ssh, variable, species) %>% summarize(LL = min(value), UL = max(value), value = mean(value))
+op2.2 <- op2.2 %>% group_by(lunar, n2, ssh, variable, species) %>% summarize(LL = min(value), UL = max(value), value = mean(value))
+
+opall <- rbind(op1.1, op1.2, op2.1, op2.2)
+opall$lunar <- factor(opall$lunar)
+opall$n2 <- factor(opall$n2)
+rm(op1.1, op1.2, op2.1, op2.2)
+
+opall$variable <- factor(opall$variable, levels = c(5, 1, 2, 4, 3), ordered = TRUE) # Set the depth order of the clusters
+
+ggplot(data = filter(lssh, species == "I.oxyrinchus")) + # plot relationships for makos
+  geom_line(data = filter(opall, species == "I.oxyrinchus"), aes(x = ssh, y = value, color = variable), size = 1.2, alpha = 1.2) +
+  geom_path(aes(x = ssh, y = value, color = variable), alpha = 0.25) +
+  scale_color_manual(values = c("#FFFF5CFF",
+                                "#78CEA3FF",
+                                "#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF")) +
+  facet_grid(lunar~n2) + 
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+
+ggplot(data = filter(lssh, species == "P.glauca")) + # plot relationships for blues
+  geom_line(data = filter(opall, species == "P.glauca"), aes(x = ssh, y = value, color = variable), size = 1.2, alpha = 1.2) +
+  geom_path(aes(x = ssh, y = value, color = variable), alpha = 0.15) +
+  scale_color_manual(values = c("#FFFF5CFF",
+                                "#78CEA3FF",
+                                "#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF")) +
+  facet_grid(lunar~n2) + 
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+```
+
+```{r buoyancy freq}
+# Buoyancy Frequency
+p_n2 <- data.frame(
+  ssh = rep(c(-0.1339259), times = 34034), 
+  lunar = as.factor(rep(rep(c(1,2), each = 1001), times = 17)),
+  n2 = rep(seq(0,0.0005, 0.0000005), times = 34),
+  ssh_sd = rep(c(0.02605838), times = 34034),
+  ptt = as.factor(rep(c("106754", "133016", "133017", "133018", "133021", "141247", "141254", "141255", "141256", "141257", "141258", "141259", "154096", "163096", "163097", "163098", "206771"), each = 2002))
+  )
+
+p_n2 <- cbind(p_n2, predict(m.mod0.2.1, newdata = p_n2, type = "response", se.fit = FALSE))
+ln2 <- melt(p_n2, id.vars = c("ssh", "lunar", "n2", "ssh_sd", "ptt"), measure.vars = c("1", "2", "3", "4", "5"))
+ln2 <- ln2 %>% filter(lunar == 1) 
+ln2 <- left_join(ln2, species_stmp)
+
+opall <- ln2 %>% group_by(n2, variable, species) %>% summarize(LL = min(value), UL = max(value), value = mean(value))
+
+ggplot(data = filter(ln2, species == "I.oxyrinchus")) + # plot relationships for makos
+  geom_line(data = filter(opall, species == "I.oxyrinchus"), aes(x = n2, y = value, color = variable), alpha = 1.2) +
+  geom_path(aes(x = n2, y = value, color = variable), alpha = 0.15) +
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+
+ggplot(data = filter(ln2, species == "P.glauca")) + # plot relationships for makos
+  geom_line(data = filter(opall, species == "P.glauca"), aes(x = n2, y = value, color = variable), alpha = 1.2) +
+  geom_path(aes(x = n2, y = value, color = variable), alpha = 0.15) +
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+```
+
+```{r lunar illum}
+# Lunar Illumination
+p_lunar <- data.frame(
+  ssh = rep(c(-0.1339259), times = 34), 
+  lunar = as.factor(rep(rep(c(0,1), each = 1), times = 17)),
+  n2 = rep(c(3.155192e-05), times = 34),
+  ssh_sd = rep(c(0.02605838), times = 34),
+  ptt = as.factor(rep(c("106754", "133016", "133017", "133018", "133021", "141247", "141254", "141255", "141256", "141257", "141258", "141259", "154096", "163096", "163097", "163098", "206771"), each = 2))
+  )
+
+p_lunar <- cbind(p_lunar, predict(m.mod0.2.1, newdata = p_lunar, type = "response", se.fit = FALSE))
+llunar <- melt(p_lunar, id.vars = c("ssh", "lunar", "n2", "ssh_sd", "ptt"), measure.vars = c("1", "2", "3", "4", "5"))
+llunar$lunar <- factor(llunar$lunar)
+llunar <- left_join(llunar, species_stmp)
+
+llunar <- llunar %>% group_by(lunar, variable, species) %>% summarize(LL = min(value), UL = max(value), Mea = mean(value))
+
+ggplot(data = filter(llunar, species == "I.oxyrinchus")) + # plot relationships for makos
+  geom_errorbar(aes(x = variable, ymin = LL, ymax = UL, color = variable)) +
+  geom_point(aes(x = variable, y = Mea, color = variable), fill = "white") +
+  facet_wrap(~lunar) +
+  scale_x_discrete(labels = c()) +
+  scale_y_continuous(limits = c(0,1), breaks = c(0, 0.25, 0.5, 0.75, 1), labels = c(0, 0.25, 0.5, 0.75, 1)) +
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+
+ggplot(data = filter(llunar, species == "P.glauca")) + # plot relationships for makos
+  geom_errorbar(aes(x = variable, ymin = LL, ymax = UL, color = variable)) +
+  geom_point(aes(x = variable, y = Mea, color = variable), fill = "white") +
+  facet_wrap(~lunar) +
+  scale_x_discrete(labels = c()) +
+  scale_y_continuous(limits = c(0,1), breaks = c(0, 0.25, 0.5, 0.75, 1), labels = c(0, 0.25, 0.5, 0.75, 1)) +
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+```
+
+```{r SSH SD}
+# Sea-surface Height Standard Deviation
+p_sshsd <- data.frame(
+  ssh = rep(c(-0.1339259), times = 10234), 
+  lunar = as.factor(rep(rep(c(1,2), each = 301), times = 17)),
+  n2 = rep(c(3.155192e-05), times = 10234),
+  ssh_sd = rep(seq(0,0.15, 0.0005), times = 34),
+  ptt = as.factor(rep(c("106754", "133016", "133017", "133018", "133021", "141247", "141254", "141255", "141256", "141257", "141258", "141259", "154096", "163096", "163097", "163098", "206771"), each = 602))
+  )
+
+p_sshsd <- cbind(p_sshsd, predict(m.mod0.2.1, newdata = p_sshsd, type = "response", se.fit = FALSE))
+lsshsd <- melt(p_sshsd, id.vars = c("ssh", "lunar", "n2", "ssh_sd", "ptt"), measure.vars = c("1", "2", "3", "4", "5"))
+lsshsd <- lsshsd %>% filter(lunar == 1) 
+lsshsd <- left_join(lsshsd, species_stmp)
+
+opall <- lsshsd %>% group_by(ssh_sd, variable, species) %>% summarize(LL = min(value), UL = max(value), value = mean(value))
+
+ggplot(data = filter(lsshsd, species == "I.oxyrinchus")) + # plot relationships for makos
+  geom_line(data = filter(opall, species == "I.oxyrinchus"), aes(x = ssh_sd, y = value, color = variable), alpha = 1.2) +
+  geom_path(aes(x = ssh_sd, y = value, color = variable), alpha = 0.15) +
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+
+ggplot(data = filter(lsshsd, species == "P.glauca")) + # plot relationships for makos
+  geom_line(data = filter(opall, species == "P.glauca"), aes(x = ssh_sd, y = value, color = variable), alpha = 1.2) +
+  geom_path(aes(x = ssh_sd, y = value, color = variable), alpha = 0.15) +
+  labs(color = "Cluster") +
+  ylab("Probability") +
+  theme_minimal()
+```
+
+```{r n2}
+# Buoyancy Frequency
+p_n2 <- data.frame(
+  chloro = rep(c(0.5905629), times = 1368), 
+  species = as.factor(rep(c("I. oxyrinchus", "P. glauca"), each = 684)),
+  y = rep(c(36.74643), times = 1368),
+  lunar = as.factor(rep(c(1,2,1,2), times = 342)),
+  n2 = rep(seq(-4e-06, 0.00085, 0.000005), times = 8),
+  sst_sd = rep(c(0.2973896), times = 1368),
+  eke = rep( c(-1.747338, -0.7923545, -1.747338, -0.7923545), each = 342),
+  ptt = as.factor(rep(c("78683", "106754"), each = 684))
+  )
+
+p_n2 <- cbind(p_n2, predict(m.mod0.7, newdata = p_n2, type = "response", se.fit = FALSE))
+ln2 <- melt(p_n2, id.vars = c("species", "chloro", "y", "lunar", "n2", "sst_sd", "eke", "ptt"), measure.vars = c("3", "1", "2", "4", "5", "6", "7"))
+ln2$eke <- factor(ln2$eke)
+ln2 <- filter(ln2, lunar == 1)
+ln2$variable <- factor(ln2$variable, levels = c(1,2,3,4,5,6,7))
+
+ggplot(data = ln2) +
+  geom_line(aes(x = n2, y = value, color = variable, linetype = eke)) +
+  scale_x_continuous(limits = c(-4e-06, 0.00085)) +
+  facet_grid(species ~ eke)
+
+```
+
+# Cluster Conditions
+This chunk computes the average environmental conditions within each cluster
+```{r cluster conditions}
+high_res %>% group_by(cluster) %>% summarize(
+   d.1 = mean(d.b1),
+   d.2 = mean(d.b2),
+   d.3 = mean(d.b3),
+   d.4 = mean(d.b4),
+   d.5 = mean(d.b5),
+   d.6 = mean(d.b6),
+   d.7 = mean(d.b7),
+   d.8 = mean(d.b8),
+   d.sd = mean(d.sd),
+   n.1 = mean(n.b1),
+   n.2 = mean(n.b2),
+   n.3 = mean(n.b3),
+   n.4 = mean(n.b4),
+   n.5 = mean(n.b5),
+   n.6 = mean(n.b6),
+   n.7 = mean(n.b7),
+   n.8 = mean(n.b8),
+   n.sd = mean(n.sd),
+)
+ 
+combo_mod$Month <- as.numeric(combo_mod$Month)
+combo_mod$Year <- as.numeric(combo_mod$Year)
+combo_mod$lunar <- as.numeric(combo_mod$lunar)
+
+combo_mod %>% group_by(cluster) %>%
+  summarize(
+    sst = mean(sst, na.rm = TRUE),
+    sst_sd = mean(sst_sd, na.rm = TRUE),
+    ssh = mean(ssh, na.rm = TRUE),
+    ssh_sd = mean(ssh_sd, na.rm = TRUE),
+    eke = mean(eke, na.rm = TRUE),
+    ild.5 = mean(ild.5, na.rm = TRUE),
+    n2 = mean(n2, na.rm = TRUE),
+    lunar = median(lunar, na.rm = TRUE),
+    bathy = mean(bathy, na.rm = TRUE),
+    chloro = mean(chloro, na.rm = TRUE),
+    temp200 = mean(Temp200, na.rm = TRUE),
+    month = median(Month, na.rm = TRUE),
+    year = median(Year, na.rm = TRUE)
+  )
+```
+
+1. create boxplots of conditions within each cluster
+```{r conditon boxplots}
+# sst:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = sst, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# sst_sd:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = sst_sd, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# ssh:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = ssh, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# ssh_sd:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = ssh_sd, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# eke:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = eke, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# ild.5:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = ild.5, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  scale_y_reverse()+
+  theme_classic()
+
+# n2:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = n2, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# bathy:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = bathy, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# chloro:
+ggplot() +
+  geom_boxplot(data = omega_combo, aes(y = chloro, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+
+# Temp200:
+ggplot() +
+  geom_boxplot(data = combo_mod, aes(y = Temp200, color = cluster)) +
+  scale_x_continuous(breaks = c(), labels = c()) +
+  theme_classic()
+```
+
+2. When did clusters occur:
+Is there a pattern in temporal occurance of different clusters?
+```{r when bar plots}
+# what month is most common in the data overall
+c0 <- omega_combo 
+c0$cluster <- 0
+
+ggplot() +
+  geom_bar(data = c0, aes(x = Month)) +
+  geom_bar(data = omega_combo, aes(x = Month, color = cluster, fill = cluster)) +
+  facet_wrap(~cluster) +
+  theme_classic()
+
+```
+
+3. Who performed each cluster
+What was the frequency at which individual sharks engaged in each cluster
+```{r who bar blots}
+ggplot() +
+  geom_bar(data = c0, aes(x = ptt)) +
+  geom_bar(data = omega_combo, aes(x = ptt, fill = cluster)) +
+  facet_wrap(~species) +
+  coord_flip() +
+  theme_classic()
+```
+
+
+## NOTES FROM 2022/03 ###
+After consulting with the MPG and with Camrin, it seems that there are really only two broad behavioral states that blue and mako sharks exhibit in this dataset. These are epipelagic surface use and diel-vertical migration. However, there appears to be considerable variation in fine-scale patterns of movement within each of these two behavior classes
+
+To examine both coarse and fine scale behavior patterns, we have decided to try a nested clustering approach. Using the course-resolution TAD summaries from the first analysis itteration, we will perform clustering aimed at identifying tracking days from the two broad behavior types. Next, using fine-scale TAD summaries reconstructed from a subset of tracking days for which time-series data are available, we will perform a second round of clustering in an attempt to identify fine-scale behavior variations. 
+
+For this analysis, I will exclude any tracking days which occur in water more shallow than 1000 meters. This is because the environmental drivers of behavior may be confounded with physical habitat constrictions in these locations. For example, conditions on the continental shelf attract blue sharks in the spring and summer to regions where they cannot utilize their normal vertical range - therefore epipelagic surface-use behavior may appear to be more common in warmer waters with high productivity simply because it is limited to shelf occurrences. In reality, the drivers of this behavior in the pelagic habitat of blue sharks may be much different.
+
+# Course Clustering Data
+This chunk compiles the data for a course-resolution cluster anlaysis of blue and mako shark behavior:
+```{r course cluster: data}
+# filter tracking days in water shallower than 1000 meters
+course_tad <- filter(omega_combo, bathy <= -1000)
+course_m7 <- filter(m7, depth <= -1000)
+
+# select relevant columns
+course_tad <- course_tad %>% dplyr::select(c("Date", "bin1", "bin2", "bin3", "bin4" , "bin5", "bin6", "bin7", "bin8", "ptt", "species"))
+course_m7 <- course_m7 %>% dplyr::select(c("Date", "bin1", "bin2", "bin3", "bin4" , "bin5", "bin6", "bin7", "bin8", "ptt", "species"))
+
+# add lucky mako 7 to the main dataset
+course_m7$ptt <- factor(course_m7$ptt)
+course_tad <- rbind(course_tad, course_m7) # results in 1337 tracking days for clustering
+rm(course_m7)
+
+# adding kode back to course_tad
+course_tad <- course_tad %>% mutate(kode = paste(Date, ptt, sep = "_"))
+course_blue <- course_tad %>% filter(species == "P. glauca") # 824 tracking days
+course_mako <- course_tad %>% filter(species == "I. oxyrinchus") # 513 tracking days
+```
+
+This chunk performs cluster analysis on the course-resolution data:
+```{r course cluster: analysis}
+## heirarchical clustering code
+Ctad <-  course_tad %>% dplyr::select(c("bin1", "bin2", "bin3", "bin4" , "bin5", "bin6", "bin7", "bin8"))
+Ctad[Ctad < 10] <- 0 # set low occurrence bins to 0 - Sal's recommendation but may need to be omitted
+
+combo_dist <- dist(Ctad, method = "manhattan")
+
+Clust <- hclust(combo_dist, method = "average")
+
+## statistical assessments for optimum number of clusters
+NbClust(data = Ctad, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "ch")
+# LowToZero: 12 clusters
+# Raw: 8 clusters
+
+NbClust(data = Ctad, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "duda")
+# LowToZero: 2 clusters
+# Raw: 2 clusters
+
+NbClust(data = Ctad, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "cindex")
+# LowToZero: 20 clusters 
+# Raw: 20 clusters
+
+NbClust(data = Ctad, diss = NULL, distance = "manhattan", min.nc = 2,
+        max.nc = 20, method = "average", index = "beale")
+# LowToZero: 2 clusters
+# Raw: 2 clusters
+
+## examining cluster results
+combo_sub_grp <- cutree(Clust, k = 4)
+table(combo_sub_grp)
+# NOTE: Setting low bins to 0 seems to affect the NbClust outcomes but hardly affects the clustering scheme itself based on the cuttree outcomes for k = 1:5
+Ctad$cluster <- combo_sub_grp
+
+course_tad$cluster <- combo_sub_grp
+
+clust_stamp <- course_tad %>% dplyr::select(kode, species, cluster)
+```
+
+This next chunk visualizes the different course-resolution clusters created on line 2962-2969 of the above chunk:
+```{r course cluster: visualization}
+combo_series <- rbind(mako_series, blue_series)
+combo_series$Local_Time <- as_hms(combo_series$Local_Time)
+course_series <- inner_join(combo_series, clust_stamp, by = "kode")
+unique(course_series$kode)
+
+# daily cluster kernal density heatmaps
+ggplot(data = course_series, aes(x = Local_Time, y = depth) ) +
+  stat_density_2d(aes(fill = ((..ndensity..))), geom = "raster", contour = FALSE) +
+  facet_wrap(~cluster) +
+  scale_fill_viridis(option = "magma") + 
+  labs(fill = "Density") +
+  scale_y_reverse() +
+  scale_x_continuous(breaks = c(0, 43200, 86400), labels = c("00:00:00", "12:00:00", "23:00:00")) +
+  xlab("Time of Day") +
+  ylab("Depth(m)") +
+  theme_minimal()
+
+# daily cluster point maps
+ggplot(data = course_series) +
+  geom_point(aes(x = Local_Time, y = depth, color = species), alpha = 0.5) +
+  facet_grid(cluster ~ species) + 
+  scale_y_reverse() +
+  theme_classic()
+```
+
+
+
+
