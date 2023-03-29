@@ -130,8 +130,8 @@ high_res <-
   filter(!is.na(ptt)) %>% 
   as_tibble() %>% 
   mutate(Date = lubridate::ymd(Date),
-         chloro = V42) %>%
-  select(-c('V42', water_u, water_v, tpos))
+         chloro = `...42`) %>%
+  dplyr::select(-c(`...42`, water_u, water_v, tpos))
 
 rm(data,
    fileList,
@@ -153,33 +153,6 @@ high_res$lunar <-
     as.Date(high_res$Date))
 
 
-# HYCOM for all tracking days ---------------------------------------------
+# store data ---------------------------------------------
 
-positions <- combo_track %>% dplyr::select(Date, ptt, latitude, longitude, kode)
-
-# remove duplicates in days w. more than one location
-positions <- 
-  positions[which(!duplicated(positions$kode)),] 
-
-# match w. series data
-positions <- left_join(combo_series, positions, by = c("kode"))
-
-# extract environmental files from HYCOM for each unique date
-## create an index of new columns where you want the environmental data to go. I happen to know this outputs 15 cols so I cheated...
-col_idx <- c((ncol(positions) + 1):(ncol(positions) + 16))
-
-t1 <- Sys.time()
-for (tt in 1:nrow(positions)){
-  data <- unlist(facet_hycom(xpos = high_res$longitude[tt],
-                             ypos = high_res$latitude[tt],
-                             tpos = as.Date(high_res$Date[tt]), ## needs to be of class 'Date'
-                             xlen = 0.25, ## these "errors" need to be approx this size to allow the calculations to run successfully
-                             ylen = 0.25, 
-                             varName = c('water_temp', 'water_u', 'water_v','surf_el','salinity')))
-  data <- as.data.frame(t(data))
-  high_res[tt,col_idx] <- data
-  rm(data)
-}
-
-t2 <- Sys.time()
-t2 - t1
+write_csv(high_res, 'data/clean/high_resolution_summaries.csv')

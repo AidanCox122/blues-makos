@@ -8,21 +8,31 @@ library(tags2etuff)
 # TAD input ------------------------------------------------------------------
 
 # Load the etuff data for blue and mako sharks --
-fList <- list.files("~/Desktop/blues-makos/data/raw/etuff", full.names = T)
+fList <- list.files("data/raw/etuff", full.names = T)
+# separate etuffs for blue sharks
 blues <- fList[grep('160424', fList)]
+# and for makos
 makos <- fList[grep('159924', fList)]
 
-# for mako sharks
+# for mako sharks, get on-board calculated time-at-depth summaries
 for(i in 1:length(makos)) {
+  # read the raw etuff file
   etuff <- read_etuff(makos[i])
+  # extract tad data from the etuff 
   tad <- get_tad(etuff)
+  # separate date and time data, we only want to know unique dates
   tad <- tad %>% separate(DateTime, into = c("Date", "Time"), sep = "([ ])")
+  # pivot data into a tidy format, take the mean of bin values for dates with >1 summary
   tad <- tad %>% pivot_wider(id_cols = Date,
                              names_from = bin,
                              values_from = freq,
                              values_fn = list(freq = mean))
+  
+  # what is the tag number
   tad$ptt <- etuff$meta$ptt
+  # who programmed this tag
   tad$owner <- etuff$meta$person_owner
+  # assign output and cleanup
   assign(paste("mtad", i, sep = "_"), tad)
   rm(etuff, tad)
   print(i)
@@ -38,7 +48,7 @@ mako_raw <- list(
   m7 = mtad_7
 )
   
-# for blue sharks 
+# for blue sharks, get on-board calculated time-at-depth summaries 
 for(i in 1:length(blues)) {
   etuff <- read_etuff(blues[i])
   tad <- get_tad(etuff)
@@ -148,6 +158,7 @@ tad_mako <- rbind(gregory_mako, camrin_mako)
 rm(gregory_mako, camrin_mako)
 
 # blues 
+# all blue sharks from this study were tagged by camrin, combining bins accordingly
 
 tad_blue <- rbind(btad_1, btad_2, btad_3, btad_4, btad_5, btad_6, btad_7,
                    btad_8, btad_9, btad_10, btad_11, btad_12, btad_13)
@@ -175,34 +186,45 @@ rm(mtad_1, mtad_2, mtad_3, mtad_4, mtad_5, mtad_6, mtad_7, btad_1, btad_2, btad_
 
 # TAD DATA
 # mako TAD file
-write_csv(tad_mako, '~/Desktop/blues-makos/data/clean/TAD/tad_mako.csv')
+write_csv(tad_mako, 'data/clean/TAD/tad_mako.csv')
 # list of individual TAD summaries
-write_rds(mako_raw, '~/Desktop/blues-makos/data/clean/TAD/all_mako_tads.rds')
+write_rds(mako_raw, 'data/clean/TAD/all_mako_tads.rds')
 
 # blue TAD file
-write_csv(tad_blue, '~/Desktop/blues-makos/data/clean/TAD/tad_blue.csv')
+write_csv(tad_blue, 'data/clean/TAD/tad_blue.csv')
 # list of individual TAD summaries 
-write_rds(blue_raw, '~/Desktop/blues-makos/data/clean/TAD/all_blue_tads.rds')
+write_rds(blue_raw, 'data/clean/TAD/all_blue_tads.rds')
 
 # Track input -------------------------------------------------------------
 
+# extract geolocation data for each individual 
+
 # makos
 for(i in 1:length(makos)) {
+  # read in the etuff file
   etuff <- read_etuff(makos[i])
+  # extract location data from etuff
   track <- get_track(etuff)
+  # specify the tag number
   track$ptt <- etuff$meta$ptt
+  # separate date and time data
   track$dup <- track$DateTime
   track <- track %>% separate(dup, into = c("Date", "Time"), sep = "([ ])")
+  # create a primary key 
   track <- track %>% mutate(
     kode = paste(Date, ptt, sep = "_")
   )
+  # assignment and cleanup
   assign(paste("mtrack",i, sep = "_" ), track)
   rm(etuff, track)
   print(i)
 }
 
+# combine all location data
 mako_tracks <- rbind(mtrack_1, mtrack_2, mtrack_3, mtrack_4,
                      mtrack_5, mtrack_6, mtrack_7)
+
+# add a secondary key for species
 mako_tracks$species <- "I.oxyrinchus"
 
 rm(mtrack_1, mtrack_2, mtrack_3, mtrack_4, mtrack_5, mtrack_6, mtrack_7)
@@ -239,8 +261,9 @@ shark_tracks <- list(
 
 ## add bathymetry data ----------------------------------------------------------
 
-## load global bathy from MPG drive
+## load global bathy from file stored on MPG drive
 bathy <- raster::raster('data/raw/global_bathy_0.01.nc')
+
 ## this is a global grid with pacific-centered coordinates (longitudes 0 to 360)
 ## raster::rotate converts from 0-360 longitudes to 180 longitudes (atlantic-centered)
 bathy <- raster::rotate(bathy)
@@ -254,7 +277,8 @@ bathy_stmp <-
 for(x in unique(combo_track$kode)) {
   # subset the data to unique day for unique shark
   subset <- 
-    filter(combo_track, kode == x) %>% 
+    filter(combo_track, kode == x) %>%
+    # for sharks with multiple locations per day, just use the first one
     filter(DateTime == min(DateTime))
   
   if(near(subset$latitudeError,0)) {
@@ -310,12 +334,16 @@ for (i in 4:length(makos)) {
   etuff <- read_etuff(makos[i])
   # get the series data
   series <- get_series(etuff)
-  series$dn <- add_daynight(series, etuff)
+  # remove incomplete observations
   series <- filter(series, !is.na(depth))
   # add temperature data
+  # get temperature data recorded by tag
   temp <- get_pdt(etuff)
+  # apply loess smoother to create temperature profile of water column
   interp <- interp_pdt(etuff)
   series <- add_series_temp(series, temp, interp)
+  # add daytime or nighttime to each observation
+  series$dn <- add_daynight(series, etuff)
   # metadata
   series$species <- "I.oxyrinchus"
   series$ptt <- etuff$meta$ptt
@@ -339,7 +367,6 @@ mako_series <- rbind(mseries_4, mseries_5, mseries_6, mseries_7.short)
 for (i in 1:length(blues)) {
   etuff <- read_etuff(blues[i])
   series <- get_series(etuff)
-  series$dn <- add_daynight(series, etuff)
   series <- series %>% filter(!is.na(depth))
   # add temperature data
   temp <- get_pdt(etuff)
@@ -373,27 +400,28 @@ shark_series <-
 )
 combo_series <- rbind(mako_series, blue_series)
 
-## add daynight data to combo_series ---------------------------------------
-daynight_stmp <- 
-  vector("list", 
-         length = length(unique(combo_series$ptt))) %>% 
-  setNames(unique(combo_series$ptt))
-
-for(x in unique(combo_series$ptt)) {
-  file <- fList[grep(paste(x), fList)]
-  etuff <- read_etuff(file)
-  series <- 
-    combo_series %>% 
-    filter(ptt == x)
-  series$dn <- add_daynight(series, etuff)
-  daynight_stmp[[paste(x)]] <-
-    series %>% select(kode, DateTime_local, dn)
-}
-
-combo_series <- 
-  combo_series %>% 
-  left_join(bind_rows(daynight_stmp),
-            by = c('kode', 'DateTime_local'))
+# ## add daynight data to combo_series ---------------------------------------
+# # another way of adding daynight data
+# daynight_stmp <- 
+#   vector("list", 
+#          length = length(unique(combo_series$ptt))) %>% 
+#   setNames(unique(combo_series$ptt))
+# 
+# for(x in unique(combo_series$ptt)) {
+#   file <- fList[grep(paste(x), fList)]
+#   etuff <- read_etuff(file)
+#   series <- 
+#     combo_series %>% 
+#     filter(ptt == x)
+#   series$dn <- add_daynight(series, etuff)
+#   daynight_stmp[[paste(x)]] <-
+#     series %>% select(kode, DateTime_local, dn)
+# }
+# 
+# combo_series <- 
+#   combo_series %>% 
+#   left_join(bind_rows(daynight_stmp),
+#             by = c('kode', 'DateTime_local'))
 
 ## add bathymetry -----------------------------------------------------------
 combo_series <- 
@@ -404,10 +432,10 @@ combo_series <-
 ## save these data
 
 # combo series
-write_csv(combo_series, '~/Desktop/blues-makos/data/clean/Series/combo_series.csv')
+write_csv(combo_series, 'data/clean/Series/combo_series.csv')
 
 # individual shark series
-write_rds(all_sharks, '~/Desktop/blues-makos/data/clean/Series/shark_series.rds')
+write_rds(shark_series, 'data/clean/Series/shark_series.rds')
 
 
 # Header input ------------------------------------------------------------
@@ -416,7 +444,7 @@ write_rds(all_sharks, '~/Desktop/blues-makos/data/clean/Series/shark_series.rds'
 for (i in 4:length(makos)) {
   hdr <- get_header(makos[i])
   hdr <- hdr %>% mutate(friendly_name = ifelse(ptt == 206771, 'Muscles', friendly_name))
-  hdr <- select(hdr, c(instrument_type, length_capture,
+  hdr <- dplyr::select(hdr, c(instrument_type, length_capture,
                 length_type_capture, length_unit_capture, lifestage_capture,
                 person_owner, ptt, friendly_name, sex, time_coverage_start,
                 time_coverage_end, geospatial_lat_start,
@@ -430,7 +458,7 @@ for (i in 4:length(makos)) {
 # blues
 for (i in 1:length(blues)) {
   hdr <- get_header(blues[i])
-  hdr <- select(hdr, c(instrument_type, length_capture,
+  hdr <- dplyr::select(hdr, c(instrument_type, length_capture,
                 length_type_capture, length_unit_capture, lifestage_capture,
                 person_owner, ptt, friendly_name, sex, time_coverage_start,
                 time_coverage_end, geospatial_lat_start,
@@ -449,6 +477,6 @@ combo_hdr <- rbind(mHdr_4, mHdr_5, mHdr_6, mHdr_7,
                    bHdr_13)
 
 # store the data
-write_csv(combo_hdr, '~/Desktop/blues-makos/data/clean/combo_hdr.csv')
+write_csv(combo_hdr, 'data/clean/combo_hdr.csv')
 
 

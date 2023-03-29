@@ -8,6 +8,8 @@ library(rnaturalearthdata)
 library(rgeos)
 library(ggspatial)
 library(sf)
+library(raster)
+library(cmocean)
 
 world <- ne_countries(scale = "medium", returnclass = "sf")
 
@@ -71,8 +73,8 @@ ggplot(data = r_df) +
         z = z),
     color = "black",
     breaks = c(-1000)) +
-  scale_x_continuous(minor_breaks = c(-70, -50, -30)) +
-  scale_y_continuous(minor_breaks = c(10, 20, 30, 40)) +
+  scale_x_continuous(breaks = c(-80, -70, -60, -50, -40)) +
+  scale_y_continuous(breaks = c(10, 20, 30, 40)) +
   coord_sf(xlim = c(-80, -35), ylim = c(9, 45)) +
   geom_path(data = (combo_track %>% 
               # remove greg's tags
@@ -87,18 +89,113 @@ ggplot(data = r_df) +
   # add tagging location as open green circle
   geom_point(data = start_pts, aes(longitude, latitude),
              color = 'green',
-             shape = 1,
-             size = 3) +
+             shape = 16,
+             size = 1.5) +
   
   # add pop-up locatoin as black X
   geom_point(data = end_pts, aes(longitude, latitude),
-             color = 'black',
+             fill = 'black',
              shape = 4,
-             size = 3) + 
+             stroke = 0.75,
+             size = 1.75) + 
   xlab("Longitude") +
   ylab("Latitude") +
   theme_linedraw() +
-  theme(element_blank())
+  theme(legend.position = 'none',
+        element_blank())
+
+## mesopelagic inset ----
+# making map of % mesopelagic occupancy in a gridded raster
+# See this youtube video for a helpful tutorial: https://www.youtube.com/watch?v=_bzqAuBnOag 
+
+# set the extent of the region 
+e <- extent(c(-80, -30, 5, 50))
+# the reference system is:
+crs <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs+ towgs84=0,0,0")
+# now put them together in 50x50 raster, can back-calculate the area of each cell if necessary based on extent
+r <- raster(nrow = 50, ncol = 50, ext = e, crs = crs)
+p <- as(r@extent, 'SpatialPolygons')
+
+# create a binary variable, in mesopelagic or not
+combo_series$meso <- cut(combo_series$depth, breaks = c(0, 200, 2000), labels = c(1,2), include.lowest = TRUE, right = FALSE)
+
+# count the observations in the mesopelagic for each tracking day
+meso_freq <- 
+  combo_series %>% 
+  # filter out observations from over the shelf and with incomplete records
+  # remove data from over the continental shelf
+  filter(bathy <= -1000) %>% 
+  group_by(ptt) %>% 
+  count(Date) %>% # there are 1634 total tracking days with series data
+  filter(n >= 288) %>% # there are 1249 tracking days with more than 50% of their series data
+  right_join(combo_series, by = c("Date", "ptt")) %>% 
+  filter(!is.na(n)) %>% 
+  group_by(kode) %>% 
+  count(meso, .drop = FALSE) %>% 
+  mutate(tot = sum(n), perc = (n/tot) * 100) %>% 
+  filter(meso == 2) %>% 
+  dplyr::select("kode", "tot", "perc") %>% 
+  rename(totalObservations = tot, percentMesopelagic = perc)
+
+# Add % time in mesopelagic to track data for each shark
+meso_tracks <- 
+  combo_track %>% 
+  left_join(meso_freq, by = c("kode"))
+
+# separate by species
+# an object for mako sharks
+mako_tracks <- 
+  meso_tracks %>% 
+  filter(species == "I.oxyrinchus")
+# and an object for blue sharks
+blue_tracks <- 
+  meso_tracks %>% 
+  filter(species == "P.glauca")
+
+# now convert each object to a grided raster with the same dimensions as r, where the value of each cell is the mean of percent time in the mesopelagic
+makor <- raster::rasterize(mako_tracks[,c('longitude','latitude')], r, mako_tracks$percentMesopelagic, fun = mean)
+bluer <- raster::rasterize(blue_tracks[,c('longitude','latitude')], r, blue_tracks$percentMesopelagic, fun = mean)
+
+# convert these rasters back into data frames for plotting
+makor_df <- 
+  as.data.frame(makor, xy = TRUE) %>% 
+  filter(!is.na(layer))
+
+bluer_df <- 
+  as.data.frame(bluer, xy = TRUE) %>% 
+  filter(!is.na(layer))
+
+# plot the data for mako sharks
+ggplot(data = makor_df) +
+  geom_tile(aes(x = x, y = y, fill = layer), color = "black") +
+  geom_sf(data = world) +
+  scale_fill_cmocean(name = "deep") +
+  #scale_fill_cmocean(name = "deep", limits = c(0, 100), breaks = c(20, 40, 60, 80), labels = c(20, 40, 60, 80)) +
+  coord_sf(xlim = c(-80, -35), ylim = c(10, 45)) +
+  #guides(fill=guide_colorbar(title="Mesopelagic (%)", direction = "horizontal")) +
+  theme_linedraw() +
+  xlab("")+
+  ylab("") +
+  theme(legend.position = "none")
+#theme(legend.position = c(0.80, 0.085), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+
+ggplot(data = bluer_df) +
+  geom_tile(aes(x = x, y = y, fill = layer), color = "black") +
+  geom_sf(data = world) +
+  scale_fill_cmocean(name = "deep") +
+  #scale_fill_cmocean(name = "deep", limits = c(0, 100), breaks = c(20, 40, 60, 80), labels = c(20, 40, 60, 80)) +
+  coord_sf(xlim = c(-80, -35), ylim = c(10, 45)) +
+  guides(fill=guide_colorbar(title="Mesopelagic (%)", direction = "horizontal")) +
+  theme_linedraw() +
+  xlab("")+
+  ylab("") +
+  theme(legend.position = "none") # +
+  # theme(legend.position = c(0.50, 0.085),
+  #       legend.box = "horizontal",
+  #       legend.background = element_rect(fill = "white",
+  #                                        size = 0.5,
+  #                                        linetype = "solid",
+  #                                        color = "black"))
 
 # figure 2 ----------------------------------------------------------------
 
@@ -395,8 +492,8 @@ combo_mod <-
       ref = 1),
     # reference as blue sharks because we have more tags from them
     species = relevel(
-      as.factor(cluster),
-      ref = 1),
+      as.factor(species),
+      ref = 'P.glauca'),
     ptt = factor(ptt),
     depth = bathy,
     l2 = lunar) %>% 
@@ -431,7 +528,7 @@ combo_mod <-
 
 m.mod <- 
   mblogit(
-    formula = clus2 ~ ssh + ssh_sd + lunar + species + n2 + ssh:n2,
+    formula = clus2 ~ ssh + ssh_sd + lunar + species,
     random = ~1|ptt,
     data = combo_mod)
 
@@ -442,8 +539,6 @@ p_ssh <-
   data.frame(
     ssh = rep(seq(-1,1, 0.025),times = 34), 
     lunar = as.factor(rep(rep(c(0,1),each = 81),times = 17)),
-    # hold n2 at first quartile value (contrast low and high values to see interaction)
-    n2 = rep(c(1.492e-05), times = 2754),
     # hold ssh_sd at the mean value
     ssh_sd = rep(c(0.02605838), times = 2754),
     ptt = as.factor(rep(c("106754",
@@ -464,38 +559,11 @@ p_ssh <-
                           "163098",
                           "206771"),
                         each = 162))) %>% 
-  rbind(
-    data.frame(
-      ssh = rep(seq(-1,1, 0.025), times = 34), 
-      lunar = as.factor(rep(rep(c(0,1), each = 81), times = 17)),
-      # same thing with 3rd quartile value
-      n2 = rep(c(7.461e-05), times = 2754),
-      ssh_sd = rep(c(0.02605838), times = 2754),
-      
-      ptt = as.factor(rep(c("106754",
-                            "133016",
-                            "133017",
-                            "133018",
-                            "133021",
-                            "141247",
-                            "141254",
-                            "141255",
-                            "141256",
-                            "141257",
-                            "141258",
-                            "141259",
-                            "154096",
-                            "163096",
-                            "163097",
-                            "163098",
-                            "206771"),
-                          each = 162)))) %>%  
-  left_join(
-    (high_res %>% 
-      select(ptt, species) %>% 
-       distinct() %>% 
-       mutate(ptt = factor(ptt))),
-    by = 'ptt')
+  left_join(high_res %>% 
+              dplyr::select(ptt, species) %>%
+              distinct() %>% 
+              mutate(ptt = factor(ptt)),
+            by = 'ptt')
   
 # add predictions based on the best performing model
 p_ssh <- 
@@ -507,10 +575,9 @@ p_ssh <-
             se.fit = FALSE))
 # condense predictions to a single column (value) dependent on cluster (variable)
  lssh <- 
-  melt(p_ssh,
+  reshape2::melt(p_ssh,
        id.vars = c("ssh",
                    "lunar",
-                   "n2",
                    "ssh_sd",
                    "ptt",
                    "species"),
@@ -520,52 +587,28 @@ p_ssh <-
                         "4",
                         "5")) %>% 
   mutate(
-    lunar = factor(lunar),
-    n2 = factor(n2))
+    lunar = factor(lunar))
 
 rm(p_ssh)
 
 # create a mean line by averaging all individuals 
-op1 <- 
-  lssh %>% 
-  filter(n2 == 1.492e-05) %>% 
-  group_by(n2,
-           ssh,
-           variable,
-           species) %>%
-  summarize(
-    # lower limit of predictions
-    LL = min(value),
-    # upper limit of predictions
-    UL = max(value),
-    # average predictions 
-    value = mean(value)) %>% 
-  ungroup()
-
-op2 <- 
-  lssh %>% 
-  filter(n2 == 7.461e-05) %>% 
-  group_by(n2,
-           ssh,
-           variable,
-           species) %>%
-  summarize(
-    # lower limit of predictions
-    LL = min(value),
-    # upper limit of predictions
-    UL = max(value),
-    # average predictions 
-    value = mean(value)) %>% 
-  ungroup()
-  
-# combine 
 opall <- 
-  rbind(op1, op2)
-
-rm(op1, op2)
+  lssh %>% 
+  group_by(ssh,
+           variable,
+           species) %>%
+  summarize(
+    # lower limit of predictions
+    LL = min(value),
+    # upper limit of predictions
+    UL = max(value),
+    # average predictions 
+    value = mean(value)) %>% 
+  ungroup()
 
 # Set the depth order of the clusters
 opall$variable <- 
+  # order factors from shallowest to deepest behavior for color gradient
   factor(opall$variable,
          levels = c(2, 1, 3, 4, 5),
          ordered = TRUE) 
@@ -576,12 +619,13 @@ ggplot(data = lssh) +
                                                     levels = c(2, 1, 3, 4, 5),
                                                     ordered = TRUE) )), alpha = 0.25) +
   geom_line(data = opall,aes(x = ssh, y = value, color = variable), size = 1.2, alpha = 1.2) +
+  # use this code to generate the below colors (with some edits to yellow): show_col(cmocean(name = 'deep')(5))
   scale_color_manual(values = c("#FFFF5CFF",
                                 "#78CEA3FF",
                                 "#488E9EFF",
                                 "#404C8BFF",
                                 "#281A2CFF")) +
-  facet_grid(species~n2) + 
+  facet_wrap(~species) + 
   labs(color = "Cluster") +
   ylab("Probability") +
   theme_minimal()
@@ -593,8 +637,6 @@ p_ssh_sd <-
   data.frame(
     ssh_sd = rep(seq(0,0.13, 0.001625),times = 34), 
     lunar = as.factor(rep(rep(c(0,1),each = 81),times = 17)),
-    # hold n2 at mean
-    n2 = rep(c(5.949e-05), times = 2754),
     # hold ssh at the mean value
     ssh = rep(c(-0.1304), times = 2754),
     ptt = as.factor(rep(c("106754",
@@ -620,7 +662,7 @@ p_ssh_sd <-
        select(ptt, species) %>% 
        distinct() %>% 
        mutate(ptt = factor(ptt))),
-    by = 'ptt')
+    by = 'ptt') 
 
 # add predictions based on the best performing model
 p_ssh_sd <- 
@@ -631,11 +673,10 @@ p_ssh_sd <-
             type = "response",
             se.fit = FALSE))
 # condense predictions to a single column (value) dependent on cluster (variable)
-lssh <- 
-  melt(p_ssh_sd,
+lssh_sd <- 
+  reshape2::melt(p_ssh_sd,
        id.vars = c("ssh",
                    "lunar",
-                   "n2",
                    "ssh_sd",
                    "ptt",
                    "species"),
@@ -643,16 +684,13 @@ lssh <-
                         "2",
                         "3",
                         "4",
-                        "5")) %>% 
-  mutate(
-    lunar = factor(lunar),
-    n2 = factor(n2))
+                        "5"))
 
 rm(p_ssh_sd)
 
 # create a mean line by averaging all individuals 
 op <- 
-  lssh %>% 
+  lssh_sd %>% 
   group_by(ssh_sd,
            variable,
            species) %>%
@@ -672,7 +710,7 @@ op$variable <-
          ordered = TRUE) 
 
 # plot relationships for makos
-ggplot(data = lssh) + 
+ggplot(data = lssh_sd) + 
   geom_path(aes(x = ssh_sd, y = value, color = (factor(variable,
                                                     levels = c(2, 1, 3, 4, 5),
                                                     ordered = TRUE) )), alpha = 0.25) +
@@ -686,6 +724,7 @@ ggplot(data = lssh) +
   labs(color = "Cluster") +
   ylab("Probability") +
   theme_minimal()
+
 
 
 
@@ -734,3 +773,26 @@ for(i in 1:length(series_dates)) {
   }
 }
 
+
+# troubleshooting ---------------------------------------------------------
+
+combo_mod %>%
+  filter(cluster == 5) %>% 
+  ggplot() + 
+  geom_boxplot(aes(x = ssh, color = species)) + 
+  scale_color_manual(values = c('#00BFC4', '#F8766D')) + 
+  ggtitle('Observed conditions of Cluster 5') + 
+  xlab('SSH')
+
+combo_mod %>% 
+  ggplot() + 
+  geom_histogram(aes(x = cluster, fill = species)) + 
+  scale_fill_manual(values = c('#00BFC4', '#F8766D')) + 
+  facet_grid(species~.)
+
+combo_mod %>%
+  ggplot() + 
+  geom_boxplot(aes(x = ssh_sd, color = species)) + 
+  scale_color_manual(values = c('#00BFC4', '#F8766D')) + 
+  ggtitle('Observed conditions of SSH_sd') + 
+  xlab('SSH_sd')

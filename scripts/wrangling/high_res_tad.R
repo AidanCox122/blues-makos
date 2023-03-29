@@ -22,7 +22,7 @@ high_res <- combo_series %>%
   # group by individual
   group_by(ptt) %>%
   # count number of records from each date (576 is max. possible total)
-  count(Date) %>%
+  count(Date) %>% # View()
   # there are 675 (928) tracking days with more than 75% (60%) of their series data
   filter(n >= 345) %>% 
   left_join(combo_series, by = c("Date", "ptt")) %>% 
@@ -68,7 +68,8 @@ daytime <- daytime %>% transmute(
   d.b6 = (b6/total) * 100,
   d.b7 = (b7/total) * 100,
   d.b8 = (b8/total) * 100,
-  d.sd = sd
+  d.sd = sd,
+  dn = dn
 )
 
 nightime <- nightime %>% transmute(
@@ -82,7 +83,8 @@ nightime <- nightime %>% transmute(
   n.b6 = (b6/total) * 100,
   n.b7 = (b7/total) * 100,
   n.b8 = (b8/total) * 100,
-  n.sd = sd
+  n.sd = sd,
+  dn = dn
 )
 
 high_res <- inner_join(daytime, nightime, by = c("ptt", "Date"))

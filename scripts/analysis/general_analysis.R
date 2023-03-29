@@ -45,6 +45,8 @@ complete_series_0.5 %>%
   summarize(all_max = max(max), mean = mean(max))
 
 ## location distribution----
+# where do most of the track locations fall?
+# what is the range of locations in each direction?
 complete_series_0.5 %>% 
   left_join(
     combo_track %>% 
@@ -52,7 +54,7 @@ complete_series_0.5 %>%
       filter(DateTime == min(DateTime)),
     by = 'kode'
   ) %>% 
-  select(latitude, longitude) %>% 
+  dplyr::select(latitude, longitude) %>% 
   summary()
 
 ## temperature distribution ----
@@ -68,11 +70,13 @@ complete_series_0.5 %>%
 
 ## diel patterns ----
 
+# calculate the percentage of time in the epipelagic
 complete_series_0.5 %>% 
   mutate(epipelagic = if_else(
     depth <= 200,
     1,
-    0)) %>% 
+    0)) %>% # View()
+  # specify during day 'd' or night 'n' periods
   filter(dn == 'n') %>% 
   group_by(kode, species) %>% 
   summarize(n = n(),
@@ -95,7 +99,7 @@ complete_series_0.5 %>%
     b8 = sum((depth >= 500)),
     sd = sd(depth),
     total = sum(b1,b2,b3,b4,b5,b6,b7,b8),
-    .groups = 'drop') %>% 
+    .groups = 'drop') %>% # View()
   transmute(
     kode = kode,
     species = species,

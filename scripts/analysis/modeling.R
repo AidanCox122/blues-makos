@@ -52,9 +52,9 @@ combo_mod <-
     lunar = case_when(
       lunar >= 0.75 ~ 2,
       lunar < 0.75 ~ 1),
-     lunar = relevel(
-       # setting lunar to a factor with reference 1
-       as.factor(lunar), ref = 1))
+    lunar = relevel(
+      # setting lunar to a factor with reference 1
+      as.factor(lunar), ref = 1))
 
 
 # cross correlation analysis ----------------------------------------------
@@ -119,15 +119,6 @@ get_weight(base = c('ssh',
                     'n2',
                     'ild.5'))
 
-# n2 next
-
-get_weight(base = c('ssh',
-                    'ssh_sd',
-                    'lunar',
-                    'species',
-                    'n2'),
-           test = c('sst_sd'))
-
 
 ## interactions ------------------------------------------------------------
 
@@ -147,66 +138,23 @@ get_weight(base = c('ssh',
                     'lunar:species',
                     'n2:species'))
 
-# ssh:n2 improves the has the highest weight
-
-get_weight(base = c('ssh',
-                    'ssh_sd',
-                    'lunar',
-                    'species',
-                    'n2',
-                    'ssh:n2'),
-           test = c('ssh:ssh_sd', 
-                    'ssh:lunar',
-                    'ssh:species',
-                    'ssh_sd:lunar',
-                    'ssh_sd:n2',
-                    'ssh_sd:species',
-                    'lunar:n2',
-                    'lunar:species',
-                    'n2:species'))
-
-# ssh:lunar and ssh_sd:lunar are about tied, going with ssh:lunar because ssh is 
-# the better indiv. predictor and it will ease interpretation
-
-get_weight(base = c('ssh',
-                    'ssh_sd',
-                    'lunar',
-                    'n2',
-                    'ssh:n2',
-                    'ssh:lunar'),
-           test = c('ssh:ssh_sd', 
-                    'ssh_sd:lunar',
-                    'ssh_sd:n2',
-                    'lunar:n2'))
-
-# ssh_sd:lunar was next best
-
-get_weight(base = c('ssh',
-                    'ssh_sd',
-                    'lunar',
-                    'n2',
-                    'ssh:n2',
-                    'ssh:lunar',
-                    'ssh_sd:lunar'),
-           test = c('ssh:ssh_sd',
-                    'ssh_sd:n2',
-                    'lunar:n2'))
+# none of the interactions terms improve the base model
 
 # predictor performance ---------------------------------------------------
 
 # what is the significance level of each predictor?
 m.mod <- 
   mblogit(
-    formula = clus2 ~ ssh + ssh_sd + lunar + species + n2 + ssh:n2,
+    formula = clus2 ~ ssh + ssh_sd + lunar + species,
     random = ~1|ptt,
     data = combo_mod)
 
 # How much deviance is explained by each predictor
 null <- 
   mblogit(
-  formula = clus2 ~ 1,
-  data = combo_mod)
-  
+    formula = clus2 ~ 1,
+    data = combo_mod)
+
 m_random <-
   mblogit(
     formula = clus2 ~ 1,
@@ -233,16 +181,14 @@ m_species <-
     formula = clus2 ~ species,
     data = combo_mod)
 
-m_n2 <-
-  mblogit(
-    formula = clus2 ~ n2,
-    data = combo_mod)
-
-m_ssh_n2 <- 
-  mblogit(
-    formula = clus2 ~ ssh:n2,
-    data = combo_mod)
-
 1 - (m_ssh_sd$deviance/null$deviance)
 
+
+
+
+get_weight(base = c('ssh',
+                    'ssh_sd',
+                    'lunar',
+                    'species'),
+           test = c('n2 + n2:ssh'))
 
