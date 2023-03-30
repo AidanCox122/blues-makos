@@ -1,5 +1,6 @@
 
 # setup -------------------------------------------------------------------
+library(tidyverse)
 
 # get TAD data
 tad_mako <- read_csv('~/Desktop/blues-makos/data/clean/TAD/tad_mako.csv')
@@ -16,11 +17,12 @@ combo_header <- read_csv('~/Desktop/blues-makos/data/clean/combo_hdr.csv')
 # Table 2 -----------------------------------------------------------------
 
 # calculate tad data coverage for each shark
-tad_coverage <- 
-  tad_combo %>% 
-  group_by(ptt) %>%
-  summarize(TAD = n()) %>%
-  rename(TagID = ptt)
+# leaving this out because we don't use the innate TAD data in this study
+# tad_coverage <- 
+#   tad_combo %>% 
+#   group_by(ptt) %>%
+#   summarize(TAD = n()) %>%
+#   rename(TagID = ptt)
 
 # calculate series data coverage
 series_coverage <- combo_series %>%
@@ -41,5 +43,6 @@ meta <- combo_header %>%
 
 table2 <- 
   meta %>%
-  inner_join(tad_coverage, by = 'TagID') %>%
-  inner_join(series_coverage, by = 'TagID')
+  inner_join(series_coverage, by = 'TagID') %>% 
+  mutate(ProportionSeries = Series/as.numeric(DaysAtLiberty)) %>% 
+  dplyr::select(-c(Series))

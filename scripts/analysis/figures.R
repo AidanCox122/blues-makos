@@ -11,7 +11,11 @@ library(sf)
 library(raster)
 library(cmocean)
 
+# create an object with continent boundaries
 world <- ne_countries(scale = "medium", returnclass = "sf")
+
+# create an object with bin bounds
+bins <- c(0, 10, 50, 100, 200, 300, 400, 500, 2000)
 
 source('scripts/analysis/general_analysis.R')
 
@@ -198,6 +202,15 @@ ggplot(data = bluer_df) +
   #                                        color = "black"))
 
 # figure 2 ----------------------------------------------------------------
+# blue shark series
+blue_series <-
+  combo_series %>% 
+  filter(species == 'P.glauca')
+
+# mako shark series
+mako_series <-
+  combo_series %>% 
+  filter(species == 'I.oxyrinchus')
 
 ## blue shark -------------------------------------------------------------
 
@@ -212,13 +225,11 @@ btuff <-
   filter(!is.na(temperature)) %>% 
   mutate(bathy = bathy * -1) %>% 
   left_join((high_res %>% 
-              select(kode, ild.5)),
-            by = 'kode') %>% 
-  left_join((omega_combo %>% 
-               select(kode, ild.5)))
+              dplyr::select(kode, ild.5)),
+            by = 'kode')
 
 # series plot
-#main.b <- 
+main.b <-
   ggplot(data = btuff) +
   geom_ribbon(aes(x = DateTime_local,
                   y = bathy,
@@ -251,21 +262,34 @@ btuff <-
 
 # Time-at-depth Histogram sub-plot 
 # step 1: calculate the percentage of time in each depth bin for each day for each individual
-blue.bin.depth <- blue_series %>% group_by(ptt, Date, dn)
-blue.bin.depth$bin <- cut(blue.bin.depth$depth, breaks = bins, labels = c(seq(1:8)), include.lowest = TRUE)
+blue.bin.depth.indiv <- 
+  blue_series %>% 
+  group_by(ptt, Date, dn) %>% 
+  # place each depth measurement in its appropriate bin
+  mutate(
+    bin = cut(depth, breaks = bins, labels = c(seq(1:8)), include.lowest = TRUE)) %>% 
+  # count the number of observations in each bin
+  count(bin, .drop = FALSE) %>% 
+  # find the total number of observations from each day from day and night
+  mutate(tot = sum(n)) %>% 
+  # filter out observations which are less than 50% complete
+  filter(tot >= 144) %>% 
+  # calculate the percent of time in each bin
+  mutate(perc = (n / tot)*100) %>% 
+  ungroup() %>%
+  # summarize at the individual level
+  group_by(ptt, dn, bin) %>%
+  summarize(m = mean(perc))
 
-blue.bin.depth <- blue.bin.depth %>% count(bin, .drop = FALSE)
-blue.bin.depth <- blue.bin.depth %>% mutate(tot = sum(n))
-blue.bin.depth <- blue.bin.depth %>% filter(tot >= 144)
-blue.bin.depth <- blue.bin.depth %>% mutate(perc = (n / tot)*100)
-
-blue.bin.depth <- ungroup(blue.bin.depth) %>% group_by(ptt, dn, bin) %>% summarize(m = mean(perc))
-
-# step 2: calculate the mean and standard error for each bin
-blue.bin.depth <- ungroup(blue.bin.depth) %>% group_by(dn, bin) %>% summarize(perc = mean(m), , se = sd(m))
+# step 2: calculate the mean and standard error for each bin at the species level
+blue.bin.depth <- 
+  blue.bin.depth.indiv %>% 
+  ungroup() %>%
+  group_by(dn, bin) %>%
+  summarize(perc = mean(m), se = sd(m)) %>% 
+  mutate(bin = as.numeric(bin))
 
 # step 3: graph it
-blue.bin.depth$bin <- as.numeric(blue.bin.depth$bin)
 sub.b <- ggplot() +
   geom_col(data = filter(blue.bin.depth, dn == "d"), aes(x = bin, y = -perc), width = 1, fill = NA, color = "black") +
   geom_errorbar(data = filter(blue.bin.depth, dn == "d"), aes(x = bin, ymin = (-perc), ymax = (-perc-se)), width = 0.5, color = "black", alpha = 0.6) +
@@ -284,14 +308,79 @@ sub.b <- ggplot() +
 library(grid)
 vp <- viewport(width = 0.4, height = 0.4, x = 0.8, y = 0.3)
 #Just draw the plot twice
-png("BlueVertHabitat.png")
+png("products/figures/figure2/BlueVertHabitat.png")
 main.b
 print(sub.b, vp = vp)
 dev.off()
 
 ## mako shark -------------------------------------------------------------
 
+m_hdr <- 
+  combo_hdr %>% 
+  filter(ptt == 163096)
 
+mtuff <-
+  combo_series %>% 
+  filter(ptt == 163096) %>% 
+  filter(!is.na(temperature)) %>% 
+  mutate(bathy = bathy * -1) %>% 
+  left_join((high_res %>% 
+               dplyr::select(kode, ild.5)),
+            by = 'kode')
+# series graph
+breaks <- as.POSIXct(c("2017-11-01 00:00:00", "2017-12-01 00:00:00", "2018-01-01 00:00:00"))
+
+# main.m <- 
+  ggplot(data = mtuff) +
+  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = bathy, ymax = 1000)) +
+  geom_point(aes(x = DateTime_local, y = depth, color = temperature)) +
+  scale_color_cmocean(name = "thermal", limits = c(5,30)) +
+  geom_line(aes(x = DateTime_local, y = ild.5), color = "grey22", alpha = 0.8, size = 1.5) +
+  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = 200, ymax = 1000), color = "black", fill = NA, alpha = 0.4) +
+  ylab("Depth (m)") +
+  xlab("Month") +
+  scale_y_reverse(limits = c(1000, 0)) +
+  scale_x_continuous(breaks = breaks, labels = c("Nov", "Dec", "Jan")) +
+  theme_classic() +
+  guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
+  theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+
+# Time-at-depth Histogram sub-plot (2)
+# step 1: calculate the percentage of time in each depth bin for each day for each individual
+mako.bin.depth <- mako_series %>% group_by(ptt, Date, dn)
+mako.bin.depth$bin <- cut(mako.bin.depth$depth, breaks = bins, labels = c(seq(1:8)), include.lowest = TRUE)
+
+mako.bin.depth <- mako.bin.depth %>% count(bin, .drop = FALSE)
+mako.bin.depth <- mako.bin.depth %>% mutate(tot = sum(n))
+mako.bin.depth <- mako.bin.depth %>% filter(tot >= 144) # 144 because half of 288 (half of the whole day)
+mako.bin.depth <- mako.bin.depth %>% mutate(perc = (n / tot)*100)
+
+mako.bin.depth <- ungroup(mako.bin.depth) %>% group_by(ptt, dn, bin) %>% summarize(m = mean(perc))
+
+# step 2: calculate the mean and standard error for each bin
+mako.bin.depth <- ungroup(mako.bin.depth) %>% group_by(dn, bin) %>% summarize(perc = mean(m), se = sd(m))
+
+# step 3: graph it
+mako.bin.depth$bin <- as.numeric(mako.bin.depth$bin)
+sub.m <- ggplot() +
+  geom_col(data = filter(mako.bin.depth, dn == "d"), aes(x = bin, y = -perc), width = 1, fill = NA, color = "black") +
+  geom_errorbar(data = filter(mako.bin.depth, dn == "d"), aes(x = bin, ymin = (-perc), ymax = (-perc-se)), width = 0.5, color = "black", alpha = 0.6) +
+  geom_col(data = filter(mako.bin.depth, dn == "n"), aes(x = bin, y = perc), width = 1, fill = "grey", color= "black") +
+  geom_errorbar(data = filter(mako.bin.depth, dn == "n"), aes(x = bin, ymin = (perc), ymax = (perc+se)), width = 0.5, color = "black", alpha = 0.6) +
+  scale_x_reverse(breaks = c(0, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100","200","300", "400", "500", "2000")) +
+  scale_y_continuous(limits = c(-60,60), breaks = c(-60,-40,-20, 0,20,40,60), labels = c(60,40,20,0,20,40,60), position = "right") +
+  xlab("Depth (m)") +
+  ylab("Time at Depth (%)") +
+  coord_flip() +
+  theme_classic() +
+  theme(plot.margin = unit(rep(0, 4), "cm"))
+
+
+#Just draw the plot twice
+png("MakoVertHabitat2.png")
+main.m
+print(sub.m, vp = vp.m)
+dev.off()
 
 # figure 3 ----------------------------------------------------------------
 
@@ -373,8 +462,6 @@ color_dendro <-
 plot(color_dendro)
 
 ## fig. 3 subplots -------------------------------------------------------------
-
-bins <- c(0, 10, 50, 100, 200, 300, 400, 500, 2000)
 
 # Step 1: recreate daily TAD summaries from series data
 ## can't use those transmitted by tags due to lower coverage
