@@ -239,23 +239,26 @@ main.b <-
   geom_line(aes(x = DateTime_local,
                 y = ild.5),
             color = "grey22",
-            alpha = 0.4,
-            size = 1.5) +
-  geom_ribbon(aes(x = DateTime_local,
-                  y = bathy,
-                  ymin = 200,
-                  ymax = 1000),
-              color = "black",
-              fill = "NA",
-              alpha = 0.8,
-              linetype = 'dashed') +
+            alpha = 0.8,
+            linewidth = 1.5) +
+  geom_hline(yintercept = 200,
+             color = "black",
+             alpha = 0.4,
+             linetype = 'dashed') +
   ylab("Depth (m)") +
   xlab("Month") +
-  scale_y_reverse(limits = c(1000, 0)) +
+  scale_y_reverse(limits = c(1000, 0), breaks = c(seq(0,1000,by = 200))) +
   theme_classic() +
   theme(legend.position = "none")
 #guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
 #theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+
+# save the plot
+ggsave(plot = main.b,
+       filename = 'products/figures/figure2/BlueVerticalHabitat.png',
+       width = 300,
+       height = 240,
+       units = 'mm')
 
 # Time-at-depth Histogram sub-plot 
 # step 1: calculate the percentage of time in each depth bin for each day for each individual
@@ -302,13 +305,11 @@ sub.b <- ggplot() +
 
 
 #A viewport taking up a fraction of the plot area
-library(grid)
-vp <- viewport(width = 0.4, height = 0.4, x = 0.8, y = 0.3)
-#Just draw the plot twice
-png("products/figures/figure2/BlueVertHabitat.png")
-main.b
-print(sub.b, vp = vp)
-dev.off()
+ggsave(plot = sub.b,
+       filename = 'products/figures/figure2/BlueAllTAD.png',
+       width = 300,
+       height = 240,
+       units = 'mm')
 
 ## mako shark -------------------------------------------------------------
 mtuff <- 
@@ -317,20 +318,28 @@ mtuff <-
 # series graph
 breaks <- as.POSIXct(c("2017-11-01 00:00:00", "2017-12-01 00:00:00", "2018-01-01 00:00:00"))
 
-# main.m <- 
+main.m <-
   ggplot(data = mtuff) +
   geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = bathy, ymax = 1000)) +
   geom_point(aes(x = DateTime_local, y = depth, color = temperature)) +
   scale_color_cmocean(name = "thermal", limits = c(5,30)) +
-  geom_line(aes(x = DateTime_local, y = ild.5), color = "grey22", alpha = 0.8, size = 1.5) +
-  geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = 200, ymax = 1000), color = "black", fill = NA, alpha = 0.4) +
+  geom_line(aes(x = DateTime_local, y = ild.5), color = "grey22", alpha = 0.8, linewidth = 1.5) +
+  geom_hline(yintercept = 200, color = "black", alpha = 0.4, linetype = 'dashed') +
   ylab("Depth (m)") +
   xlab("Month") +
-  scale_y_reverse(limits = c(1000, 0)) +
+  scale_y_reverse(limits = c(1000, 0), breaks = c(seq(0,1000,by=200))) +
   scale_x_continuous(breaks = breaks, labels = c("Nov", "Dec", "Jan")) +
   theme_classic() +
-  guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
-  theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
+  theme(legend.position = "none")
+  # guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
+  # theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", linewidth = 0.5, linetype = "solid", color = "black"))
+
+# save the plot
+ggsave(plot = main.m,
+       filename = 'products/figures/figure2/MakoVerticalHabitat.png',
+       width = 300,
+       height = 240,
+       units = 'mm')
 
 # Time-at-depth Histogram sub-plot (2)
 # step 1: calculate the percentage of time in each depth bin for each day for each individual
@@ -363,12 +372,12 @@ sub.m <- ggplot() +
   theme(plot.margin = unit(rep(0, 4), "cm"))
 
 
-#Just draw the plot twice
-png("MakoVertHabitat2.png")
-main.m
-print(sub.m, vp = vp.m)
-dev.off()
-
+#Just save the plot
+ggsave(plot = sub.m,
+       filename = 'products/figures/figure2/MakoAllTAD.png',
+       width = 300,
+       height = 240,
+       units = 'mm')
 # figure 3 ----------------------------------------------------------------
 
 source('scripts/analysis/heirarchical_clustering.R')
