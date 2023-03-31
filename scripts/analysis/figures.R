@@ -311,19 +311,9 @@ print(sub.b, vp = vp)
 dev.off()
 
 ## mako shark -------------------------------------------------------------
+mtuff <- 
+  read_csv('data/clean/Series/m163096_fullSeries.csv')
 
-m_hdr <- 
-  combo_hdr %>% 
-  filter(ptt == 163096)
-
-mtuff <-
-  combo_series %>% 
-  filter(ptt == 163096) %>% 
-  filter(!is.na(temperature)) %>% 
-  mutate(bathy = bathy * -1) %>% 
-  left_join((high_res %>% 
-               dplyr::select(kode, ild.5)),
-            by = 'kode')
 # series graph
 breaks <- as.POSIXct(c("2017-11-01 00:00:00", "2017-12-01 00:00:00", "2018-01-01 00:00:00"))
 

@@ -207,10 +207,61 @@ for (tt in 1:nrow(btuff_short)){
   btuff_short[tt,col_idx] <- data
   rm(data)}
 
-btuff %>% 
+btuff <- 
+  btuff %>% 
   full_join(btuff_short, by = c('ptt', 'Date', 'kode')) %>% 
-  mutate(ild.5 = coalesce(ild.5.x, ild.5.y)) %>% 
-  dplyr::select(-c(ild.5.x, ild.5.y)) %>% 
-  View()
+  mutate(ild.5 = coalesce(ild.5.x, ild.5.y),
+         latitude = coalesce(latitude.x, latitude.y),
+         longitude = coalesce(longitude.x, longitude.y)) %>% 
+  dplyr::select(-c(ild.5.x, ild.5.y))
 
 write.csv(btuff, 'data/clean/Series/b133018_fullSeries.csv')
+
+## mako shark
+
+m_hdr <- 
+  combo_hdr %>% 
+  filter(ptt == 163096)
+
+mtuff <-
+  combo_series %>% 
+  filter(ptt == 163096) %>% 
+  filter(!is.na(temperature)) %>% 
+  mutate(bathy = bathy * -1) %>% 
+  left_join((high_res %>% 
+               dplyr::select(kode, ild.5)),
+            by = 'kode')
+
+# get ild.5 for all days
+# apply position data to btuff data frame
+mtuff <- left_join(mtuff, position.stmp, by = c("kode"))
+
+# extract data for days missing values
+mtuff_short <-
+  mtuff %>% 
+  filter(is.na(ild.5)) %>% 
+  dplyr::select(ptt, Date, kode, latitude, longitude) %>% 
+  distinct()
+
+# extract environmental files from HYCOM for each unique date
+## create an index of new columns where you want the environmental data to go. I happen to know this outputs 15 cols so I cheated...
+col_idx <- c((ncol(mtuff_short) + 1):(ncol(mtuff_short) + 16))
+
+for (tt in 1:nrow(mtuff_short)){
+  data <- unlist(facet_hycom(xpos = mtuff_short$longitude[tt],
+                             ypos = mtuff_short$latitude[tt],
+                             tpos = as.Date(mtuff_short$Date[tt]), ## needs to be of class 'Date'
+                             xlen = 0.25, ## these "errors" need to be approx this size to allow the calculations to run successfully
+                             ylen = 0.25, 
+                             varName = c('water_temp', 'water_u', 'water_v','surf_el','salinity')))
+  data <- as.data.frame(t(data))
+  mtuff_short[tt,col_idx] <- data
+  rm(data)}
+
+mtuff <- 
+  mtuff %>% 
+  full_join(mtuff_short, by = c('ptt', 'Date', 'kode')) %>% 
+  mutate(ild.5 = coalesce(ild.5.x, ild.5.y)) %>% 
+  dplyr::select(-c(ild.5.x, ild.5.y))
+
+write.csv(mtuff, 'data/clean/Series/m163096_fullSeries.csv')
