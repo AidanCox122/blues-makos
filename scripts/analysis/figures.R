@@ -10,6 +10,8 @@ library(ggspatial)
 library(sf)
 library(raster)
 library(cmocean)
+library(HMMoce)
+devtools::load_all('analyzePSAT')
 
 # create an object with continent boundaries
 world <- ne_countries(scale = "medium", returnclass = "sf")
@@ -26,6 +28,12 @@ combo_hdr <- read_csv('data/clean/combo_hdr.csv')
 combo_track <- read_csv('data/clean/Tracks/combo_track.csv')
 read_rds('data/clean/Tracks/all_sharks.rds') %>% 
   list2env(.GlobalEnv)
+
+position.stmp <- combo_track %>% dplyr::select(latitude, longitude, kode)
+
+# remove duplicates in days w. more than one location
+position.stmp <- position.stmp[which(!duplicated(position.stmp$kode)),] 
+
 
 # read in series information, combined and individual
 combo_series <- read_csv('data/clean/Series/combo_series.csv')
@@ -214,20 +222,9 @@ mako_series <-
 
 ## blue shark -------------------------------------------------------------
 
-# select the meta data for an individual with good records
-b_hdr <- 
-  combo_hdr %>% 
-  filter(ptt == 133018)
-
-btuff <-
-  combo_series %>% 
-  filter(ptt == 133018) %>% 
-  filter(!is.na(temperature)) %>% 
-  mutate(bathy = bathy * -1) %>% 
-  left_join((high_res %>% 
-              dplyr::select(kode, ild.5)),
-            by = 'kode')
-
+btuff <- 
+  read_csv('data/clean/Series/b133018_fullSeries.csv')
+  
 # series plot
 main.b <-
   ggplot(data = btuff) +

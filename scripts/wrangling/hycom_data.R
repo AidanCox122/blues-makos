@@ -6,6 +6,9 @@ source('scripts/wrangling/high_res_tad.R')
 combo_series <- 
   read_csv('data/clean/Series/combo_series.csv')
 
+combo_hdr <- 
+  read_csv('data/clean/combo_hdr.csv')
+
 library(tidyverse)
 library(readr)
 library(raster)
@@ -156,3 +159,58 @@ high_res$lunar <-
 # store data ---------------------------------------------
 
 write_csv(high_res, 'data/clean/high_resolution_summaries.csv')
+
+
+# Figure 2 Sharks ---------------------------------------------------------
+
+# download environmental data for all tracking days in series for
+# blue shark 133018 and mako shark _____
+# for use as examples of general vertical habitat use in Fig. 2
+
+# select the meta data for an individual with good records
+b_hdr <- 
+  combo_hdr %>% 
+  filter(ptt == 133018)
+
+btuff <-
+  combo_series %>% 
+  filter(ptt == 133018) %>% 
+  filter(!is.na(temperature)) %>% 
+  mutate(bathy = bathy * -1) %>% 
+  left_join((high_res %>% 
+               dplyr::select(kode, ild.5)),
+            by = 'kode')
+
+# get ild.5 for all days
+# apply position data to btuff data frame
+btuff <- left_join(btuff, position.stmp, by = c("kode"))
+
+# extract data for days missing values
+btuff_short <-
+  btuff %>% 
+  filter(is.na(ild.5)) %>% 
+  dplyr::select(ptt, Date, kode, latitude, longitude) %>% 
+  distinct()
+
+# extract environmental files from HYCOM for each unique date
+## create an index of new columns where you want the environmental data to go. I happen to know this outputs 15 cols so I cheated...
+col_idx <- c((ncol(btuff_short) + 1):(ncol(btuff_short) + 16))
+
+for (tt in 1:nrow(btuff_short)){
+  data <- unlist(facet_hycom(xpos = btuff_short$longitude[tt],
+                             ypos = btuff_short$latitude[tt],
+                             tpos = as.Date(btuff_short$Date[tt]), ## needs to be of class 'Date'
+                             xlen = 0.25, ## these "errors" need to be approx this size to allow the calculations to run successfully
+                             ylen = 0.25, 
+                             varName = c('water_temp', 'water_u', 'water_v','surf_el','salinity')))
+  data <- as.data.frame(t(data))
+  btuff_short[tt,col_idx] <- data
+  rm(data)}
+
+btuff %>% 
+  full_join(btuff_short, by = c('ptt', 'Date', 'kode')) %>% 
+  mutate(ild.5 = coalesce(ild.5.x, ild.5.y)) %>% 
+  dplyr::select(-c(ild.5.x, ild.5.y)) %>% 
+  View()
+
+write.csv(btuff, 'data/clean/Series/b133018_fullSeries.csv')
