@@ -239,7 +239,6 @@ main.b <-
   geom_line(aes(x = DateTime_local,
                 y = ild.5),
             color = "grey22",
-            alpha = 0.8,
             linewidth = 1.5) +
   geom_hline(yintercept = 200,
              color = "black",
@@ -249,7 +248,9 @@ main.b <-
   xlab("Month") +
   scale_y_reverse(limits = c(1000, 0), breaks = c(seq(0,1000,by = 200))) +
   theme_classic() +
-  theme(legend.position = "none")
+  theme(legend.position = "none",
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 20))
 #guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
 #theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", size = 0.5, linetype = "solid", color = "black"))
 
@@ -301,7 +302,10 @@ sub.b <- ggplot() +
   ylab("Time at Depth (%)") +
   coord_flip() +
   theme_classic() + 
-  theme(plot.margin = unit(rep(0, 4), "cm"))
+  theme(plot.margin = unit(rep(0, 4), "cm"),
+        legend.position = "none",
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 20))
 
 
 #A viewport taking up a fraction of the plot area
@@ -323,15 +327,16 @@ main.m <-
   geom_ribbon(aes(x = DateTime_local, y = bathy, ymin = bathy, ymax = 1000)) +
   geom_point(aes(x = DateTime_local, y = depth, color = temperature)) +
   scale_color_cmocean(name = "thermal", limits = c(5,30)) +
-  geom_line(aes(x = DateTime_local, y = ild.5), color = "grey22", alpha = 0.8, linewidth = 1.5) +
+  geom_line(aes(x = DateTime_local, y = ild.5), color = "grey22", linewidth = 1.5) +
   geom_hline(yintercept = 200, color = "black", alpha = 0.4, linetype = 'dashed') +
   ylab("Depth (m)") +
   xlab("Month") +
   scale_y_reverse(limits = c(1000, 0), breaks = c(seq(0,1000,by=200))) +
   scale_x_continuous(breaks = breaks, labels = c("Nov", "Dec", "Jan")) +
   theme_classic() +
-  theme(legend.position = "none")
-  # guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
+  theme(legend.position = "none",
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 20))  # guides(color=guide_colorbar(title="Temp (ºC)", direction = "horizontal")) +
   # theme(legend.position = c(0.18, 0.095), legend.box = "horizontal", legend.background = element_rect(fill = "white", linewidth = 0.5, linetype = "solid", color = "black"))
 
 # save the plot
@@ -369,7 +374,10 @@ sub.m <- ggplot() +
   ylab("Time at Depth (%)") +
   coord_flip() +
   theme_classic() +
-  theme(plot.margin = unit(rep(0, 4), "cm"))
+  theme(plot.margin = unit(rep(0,4), 'cm'),
+        legend.position = "none",
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 20))
 
 
 #Just save the plot

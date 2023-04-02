@@ -104,3 +104,65 @@ high_res %>%
   pull(ssh) %>% 
   summary()
 
+# average position of clusters
+
+# plot cluster locations
+ggplot(data = r_df) +
+  geom_sf(data = world, fill = 'black') + 
+  geom_point(data = high_res %>% 
+               filter(cluster <= 5) %>% 
+               mutate(cluster = case_when(
+                 cluster == 1 ~ 'DVM 1',
+                 cluster == 2 ~ 'Epipelagic',
+                 cluster == 3 ~ 'DVM 2',
+                 cluster == 4 ~ 'DVM 3',
+                 cluster == 5 ~ 'DVM 4')) %>% 
+               mutate(
+                 cluster = factor(cluster,
+                                   levels = c('Epipelagic',
+                                              'DVM 1',
+                                              'DVM 2',
+                                              'DVM 3' ,
+                                              'DVM 4',
+                                              'DVM 5'),
+                                   ordered = T)),
+             aes(x = x, y = y, color = cluster)) +
+  scale_color_manual(values = c("#FFFF5CFF",
+                                "#78CEA3FF",
+                                "#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF")) +
+  scale_x_continuous(breaks = c(-80, -70, -60, -50, -40)) +
+  scale_y_continuous(breaks = c(10, 20, 30, 40)) +
+  coord_sf(xlim = c(-80, -35), ylim = c(9, 45)) +
+  labs(x = "Longitude",
+       y = 'Latitude',
+       color = 'Cluster') 
+
+# latitude distribution of observations from each cluster
+high_res %>%
+  filter(cluster <= 5) %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'DVM 1',
+    cluster == 2 ~ 'Epipelagic',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4'),
+    cluster = factor(cluster, levels = c(
+      'Epipelagic', 
+      'DVM 1', 
+      'DVM 2', 
+      'DVM 3',
+      'DVM 4'),
+      ordered = T
+      )) %>% 
+  ggplot() +
+  geom_boxplot(aes(x = cluster, y = y, fill = cluster)) +
+  scale_fill_manual(values = c("#FFFF5CFF",
+                               "#78CEA3FF",
+                               "#488E9EFF",
+                               "#404C8BFF",
+                               "#281A2CFF")) + 
+  labs(x = NULL, y = 'Latitude') + 
+  guides(fill = 'none')+
+  theme_classic()
