@@ -49,8 +49,49 @@ clust_stamp2 <- high_res %>%
 # how much time do sharks spend across depth bins within each cluster?
 bins <- c(0, 10, 50, 100, 200, 300, 400, 500, 2000)
 
+# 1. WHO: what was the frequency of clusters between species?
 
 high_res %>% 
+  group_by(species, cluster) %>% 
+  summarize(n = n())
+
+# what was the frequency of clusters among individuals
+high_res %>% 
+  filter(cluster <=5) %>% 
+  group_by(species, cluster) %>% 
+  summarize(uniqueIndividuals = n_distinct(ptt))
+
+# 2. WHAT: what did each cluster look like
+
+combo_series %>%
+  left_join(clust_stamp2, by = 'kode') %>% 
+  filter(cluster <= 5) %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'DVM 1',
+    cluster == 2 ~ 'Epipelagic',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4')) %>%
+  group_by(cluster, dn) %>%
+  summarize(
+    min = min(depth),
+    q1 = quantile(depth, 0.25),
+    median = median(depth),
+    mean = mean(depth),
+    q3 = quantile(depth, 0.75),
+    max = max(depth)) %>% 
+  filter(dn == 'd')
+
+# TAD summaries
+
+high_res %>% 
+  filter(cluster <= 5) %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'DVM 1',
+    cluster == 2 ~ 'Epipelagic',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4')) %>%
   group_by(cluster) %>% 
   summarise(
     # daytime bins
@@ -73,7 +114,7 @@ high_res %>%
     'night.300-400' = mean(n.b6),
     'night.400-500' = mean(n.b7),
     'night.500-2000' = mean(n.b8),
-    n.sd = mean(n.sd)) %>% View()
+    n.sd = mean(n.sd)) %>% #View()
 
   # how much time did sharks spend in the mesopelagic across clusters?
   group_by(cluster) %>% 
@@ -86,12 +127,8 @@ high_res %>%
     'n.epi' = sum(c(`night.0-10`, `night.10-50`, `night.50-100`, `night.100-200`)),
     'n.meso' = sum(c(`night.200-300`, `night.300-400`, `night.400-500`, `night.500-2000`)))
 
-  
-# what was the frequency of clusters between species?
+  # dive profiles
 
-high_res %>% 
-  group_by(species, cluster) %>% 
-  summarize(n = n())
 
 # environmental conditions within each cluster
 high_res %>% 
@@ -104,9 +141,18 @@ high_res %>%
   pull(ssh) %>% 
   summary()
 
-# average position of clusters
+# 3. WHERE: average position of clusters
 
 # plot cluster locations
+
+r <- raster::raster('data/raw/global_bathy_0.01.nc')
+## this is a global grid with pacific-centered coordinates (longitudes 0 to 360)
+## raster::rotate converts from 0-360 longitudes to 180 longitudes (atlantic-centered)
+r <- raster::rotate(r)
+r <- raster::aggregate(r, fact = 5)
+r_df <- raster::as.data.frame(r, xy = TRUE)
+r_df <- r_df %>% filter(z < 0)
+
 ggplot(data = r_df) +
   geom_sf(data = world, fill = 'black') + 
   geom_point(data = high_res %>% 
