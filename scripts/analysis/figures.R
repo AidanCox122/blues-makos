@@ -548,8 +548,14 @@ cluster_series <-
              by = 'kode') %>% 
   filter(cluster <= 5) %>% 
   mutate(ogCluster = cluster,
-         cluster = factor(cluster, levels = c(2,1,3,4,5)))
-
+         cluster = case_when(
+           cluster == 1 ~ 'DVM 1',
+           cluster == 2 ~ 'Epipelagic',
+           cluster == 3 ~ 'DVM 2',
+           cluster == 4 ~ 'DVM 3',
+           cluster == 5 ~ 'DVM 4'),
+         cluster = factor(cluster, levels = c('Epipelagic', 'DVM 1', 'DVM 2', 'DVM 3', 'DVM 4'), ordered = T))
+  
 ggplot(data = cluster_series, aes(x = Local_Time, y = depth) ) +
   stat_bin_2d(aes(fill = (log10((..ndensity..)+0.01))), geom = "tile", bins = c(100, 100)) +
   scale_fill_cmocean(name = "dense") + 
@@ -825,7 +831,7 @@ ggplot(data = lssh_sd) +
 c1 <- 
   cluster_series %>%
   # update with the cluster of interest
-  filter(cluster == 2)
+  filter(cluster == 'Epipelagic')
 
 # get unique dates 
 series_dates <- unique(c1$Date) 
@@ -855,7 +861,10 @@ for(i in 1:length(series_dates)) {
       facet_grid(ptt~.) +
       theme_classic()
     
-    ggsave(paste("products/series/cluster2/", full_series[1,1], ".png", sep = ""))
+    ggsave(paste("products/series/Epipelagic/", full_series[1,1], ".png", sep = ""),
+           width = 200,
+           height = 150,
+           units = 'mm')
     
     rm(day, sharks, ptt_n, full_series)
   }
@@ -865,25 +874,19 @@ for(i in 1:length(series_dates)) {
 }
 
 
-# troubleshooting ---------------------------------------------------------
+# all timeseries ---------------------------------------------------------
 
-combo_mod %>%
-  filter(cluster == 5) %>% 
-  ggplot() + 
-  geom_boxplot(aes(x = ssh, color = species)) + 
-  scale_color_manual(values = c('#00BFC4', '#F8766D')) + 
-  ggtitle('Observed conditions of Cluster 5') + 
-  xlab('SSH')
-
-combo_mod %>% 
-  ggplot() + 
-  geom_histogram(aes(x = cluster, fill = species)) + 
-  scale_fill_manual(values = c('#00BFC4', '#F8766D')) + 
-  facet_grid(species~.)
-
-combo_mod %>%
-  ggplot() + 
-  geom_boxplot(aes(x = ssh_sd, color = species)) + 
-  scale_color_manual(values = c('#00BFC4', '#F8766D')) + 
-  ggtitle('Observed conditions of SSH_sd') + 
-  xlab('SSH_sd')
+combo_series %>% 
+  left_join(clust_stamp2, by = c('species', 'kode')) %>% 
+  filter(cluster <= 5) %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'DVM 1',
+    cluster == 2 ~ 'Epipelagic',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4'),
+    cluster = factor(cluster, levels = c('Epipelagic', 'DVM 1', 'DVM 2', 'DVM 3', 'DVM 4'), ordered = T)) %>%
+  ggplot() +
+  geom_path(aes(x = Local_Time, y = depth, color = cluster)) + 
+  scale_y_reverse() +
+  facet_wrap(~cluster)

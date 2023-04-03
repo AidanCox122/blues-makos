@@ -131,15 +131,32 @@ high_res %>%
 
 
 # environmental conditions within each cluster
-high_res %>% 
-  filter(species == 'I.oxyrinchus' & cluster == 5) %>% 
-  pull(ssh) %>% 
-  summary()
-
-high_res %>% 
-  filter(species == 'P.glauca' & cluster == 5) %>% 
-  pull(ssh) %>% 
-  summary()
+high_res %>%
+  filter(cluster <= 5) %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'DVM 1',
+    cluster == 2 ~ 'Epipelagic',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4'),
+    cluster = factor(cluster, levels = c(
+      'Epipelagic', 
+      'DVM 1', 
+      'DVM 2', 
+      'DVM 3',
+      'DVM 4'),
+      ordered = T
+    )) %>% 
+  group_by(cluster) %>% 
+  # summary of ild.5
+  summarize(
+    min = min(ild.5, na.rm = T),
+    q1 = quantile(ild.5, 0.25),
+    median = median(ild.5, na.rm = T),
+    mean = mean(ild.5, na.rm = T),
+    q3 = quantile(ild.5, 0.75),
+    max = max(ild.5, na.rm = T)
+  )
 
 # 3. WHERE: average position of clusters
 
