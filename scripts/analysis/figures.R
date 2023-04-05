@@ -831,7 +831,7 @@ ggplot(data = lssh_sd) +
 c1 <- 
   cluster_series %>%
   # update with the cluster of interest
-  filter(cluster == 'Epipelagic')
+  filter(cluster == 'DVM 4')
 
 # get unique dates 
 series_dates <- unique(c1$Date) 
@@ -861,7 +861,13 @@ for(i in 1:length(series_dates)) {
       facet_grid(ptt~.) +
       theme_classic()
     
-    ggsave(paste("products/series/Epipelagic/", full_series[1,1], ".png", sep = ""),
+    cluster <- 
+      c1 %>% 
+      pull(cluster) %>% 
+      unique() %>% 
+      as.character()
+    
+    ggsave(paste("products/series/", cluster, '/', full_series[1,1], ".png", sep = ""),
            width = 200,
            height = 150,
            units = 'mm')
@@ -876,17 +882,10 @@ for(i in 1:length(series_dates)) {
 
 # all timeseries ---------------------------------------------------------
 
-combo_series %>% 
-  left_join(clust_stamp2, by = c('species', 'kode')) %>% 
-  filter(cluster <= 5) %>% 
-  mutate(cluster = case_when(
-    cluster == 1 ~ 'DVM 1',
-    cluster == 2 ~ 'Epipelagic',
-    cluster == 3 ~ 'DVM 2',
-    cluster == 4 ~ 'DVM 3',
-    cluster == 5 ~ 'DVM 4'),
-    cluster = factor(cluster, levels = c('Epipelagic', 'DVM 1', 'DVM 2', 'DVM 3', 'DVM 4'), ordered = T)) %>%
+cluster_series %>%
+  # update with the cluster of interest
+  filter(cluster == 'DVM 3') %>% 
   ggplot() +
-  geom_path(aes(x = Local_Time, y = depth, color = cluster)) + 
+  geom_path(aes(x = Local_Time, y = depth, color = cluster), alpha = 0.5) + 
   scale_y_reverse() +
-  facet_wrap(~cluster)
+  facet_grid(cluster ~ .)
