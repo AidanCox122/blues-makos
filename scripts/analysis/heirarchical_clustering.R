@@ -11,6 +11,9 @@ library(ggdendro)
 
 high_res <- read_csv('data/clean/high_resolution_summaries.csv')
 
+combo_series <- 
+  read_csv('data/clean/Series/combo_series.csv')
+
 
 # clustering --------------------------------------------------------------
 
@@ -49,7 +52,7 @@ clust_stamp2 <- high_res %>%
 # how much time do sharks spend across depth bins within each cluster?
 bins <- c(0, 10, 50, 100, 200, 300, 400, 500, 2000)
 
-# 1. WHO: what was the frequency of clusters between species?
+## 1. WHO: what was the frequency of clusters between species? ----
 
 high_res %>% 
   group_by(species, cluster) %>% 
@@ -61,7 +64,7 @@ high_res %>%
   group_by(species, cluster) %>% 
   summarize(uniqueIndividuals = n_distinct(ptt))
 
-# 2. WHAT: what did each cluster look like
+## 2. WHAT: what did each cluster look like ----
 
 combo_series %>%
   left_join(clust_stamp2, by = 'kode') %>% 
@@ -158,7 +161,7 @@ high_res %>%
     max = max(ild.5, na.rm = T)
   )
 
-# 3. WHERE: average position of clusters
+## 3. WHERE: average position of clusters ----
 
 # plot cluster locations
 
@@ -229,3 +232,37 @@ high_res %>%
   labs(x = NULL, y = 'Latitude') + 
   guides(fill = 'none')+
   theme_classic()
+
+## 4. WHEN: when do the clusters occur in time ----
+
+high_res %>%
+  filter(cluster <= 5) %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'DVM 1',
+    cluster == 2 ~ 'Epipelagic',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4')) %>% 
+  rbind((high_res %>% 
+           filter(cluster <= 5) %>% 
+           mutate(cluster = 0))) %>% 
+  mutate(yday = lubridate::yday(Date),
+         # add a correction to center yday on tag date
+         yday = if_else(
+           yday >=238,
+           (yday - 238),
+           (yday + 127))) %>%  # pull(yday) %>% summary()
+  ggplot(aes(x = cluster, y = yday, fill = factor(cluster))) +
+  geom_boxplot() +
+  geom_jitter(alpha = 0.5) +
+  facet_wrap(~species)
+
+
+  group_by(cluster) %>% 
+  summarize(
+    min = min(yday),
+    q1 = quantile(yday, 0.25),
+    median = median(yday),
+    mean = mean(yday),
+    q3 = quantile(yday, 0.75),
+    max = max(yday))
