@@ -824,8 +824,10 @@ ggplot(data = lssh_sd) +
 
 
 
+# supplementary -----------------------------------------------------------
 
-# industrial series plots -------------------------------------------------
+
+## industrial series plots -------------------------------------------------
 
 # create an object with series data for the cluster of interest
 c1 <- 
@@ -880,7 +882,7 @@ for(i in 1:length(series_dates)) {
 }
 
 
-# all timeseries ---------------------------------------------------------
+## all timeseries ---------------------------------------------------------
 
 cluster_series %>%
   # update with the cluster of interest
@@ -889,3 +891,105 @@ cluster_series %>%
   geom_path(aes(x = Local_Time, y = depth, color = cluster), alpha = 0.5) + 
   scale_y_reverse() +
   facet_grid(cluster ~ .)
+
+## when do clusters occur ----
+library(ggridges)
+
+high_res %>%
+  filter(cluster <= 5) %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'DVM 1',
+    cluster == 2 ~ 'Epipelagic',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4'),
+    cluster = factor(cluster, levels = c(
+      'DVM 4',
+      'DVM 3',
+      'DVM 2',
+      'DVM 1',
+      'Epipelagic'))) %>% 
+  mutate(yday = lubridate::yday(Date)) %>%  # pull(yday) %>% summary()
+  ggplot(aes(x = yday, y = cluster, fill = factor(cluster))) +
+  geom_density_ridges(scale = 2.5, rel_min_height = 0.01, alpha = 0.65) +
+  scale_x_continuous(limits = c(0, 366), expand = c(0,0)) +
+  scale_y_discrete(expand = c(0,0)) +
+  scale_fill_manual(values = c("#281A2CFF",
+                               "#404C8BFF",
+                               "#488E9EFF",
+                               "#78CEA3FF",
+                               "#FFFF5CFF"),
+                    name = 'Cluster') +
+  labs(x = 'Day of the Year', y = 'Cluster') +
+  theme_classic()
+
+## corrected yday boxplot
+
+high_res %>%
+  filter(cluster <= 5) %>% 
+  rbind((high_res %>% 
+           filter(cluster <= 5) %>% 
+           mutate(cluster = 0))) %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'DVM 1',
+    cluster == 2 ~ 'Epipelagic',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4',
+    cluster == 0 ~ 'All Data'),
+    cluster = factor(cluster, levels = c(
+      'DVM 4',
+      'DVM 3',
+      'DVM 2',
+      'DVM 1',
+      'Epipelagic',
+      'All Data'))) %>% 
+  mutate(yday = lubridate::yday(Date),
+         # add a correction to center yday on tag date
+         yday = if_else(
+           yday >=238,
+           (yday - 238),
+           (yday + 127))) %>%  # pull(yday) %>% summary()
+  ggplot(aes(x = cluster, y = yday, fill = cluster)) +
+  geom_jitter(aes(color = cluster), alpha = 0.4) +
+  geom_boxplot(alpha = 0.75) +
+  scale_fill_manual(values = c("#281A2CFF",
+                               "#404C8BFF",
+                               "#488E9EFF",
+                               "#78CEA3FF",
+                               "#FFFF5CFF",
+                               '#AAAAAAAA'),
+                    name = 'Cluster') +
+  scale_color_manual(values = c("#281A2CFF",
+                               "#404C8BFF",
+                               "#488E9EFF",
+                               "#78CEA3FF",
+                               "#FFFF5CFF",
+                               '#AAAAAAAA')) +
+  labs(x = 'Cluster', y = 'Days since Tagging') +
+  guides(color = 'none') +
+  coord_flip() +
+  facet_wrap(~species) +
+  theme_classic()
+
+
+## Cluster Location Map ----------------------------------------------------
+
+high_res %>% 
+  filter(cluster <= 5) %>% 
+  group_by(cluster) %>% 
+  summarize(lon.min = min(x),
+            lon.max = max(x),
+            lat.min = min(y),
+            lat.max = max(y),
+            med.lon = median(x),
+            med.lat = median(y)) %>% 
+  ggplot() +
+  geom_sf(data = world) +
+  geom_rect(aes(xmin = lon.min,
+                xmax = lon.max,
+                ymin = lat.min,
+                ymax = lat.max,
+                fill = factor(cluster))) +
+  coord_sf(xlim = c(-80, -35), ylim = c(9, 45)) +
+  facet_wrap(~cluster)
