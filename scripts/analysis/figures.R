@@ -984,12 +984,66 @@ high_res %>%
             lat.max = max(y),
             med.lon = median(x),
             med.lat = median(y)) %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'DVM 1',
+    cluster == 2 ~ 'Epipelagic',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4'),
+    cluster = factor(cluster, levels = c(
+      'Epipelagic',
+      'DVM 1',
+      'DVM 2',
+      'DVM 3',
+      'DVM 4'))) %>% 
   ggplot() +
   geom_sf(data = world) +
   geom_rect(aes(xmin = lon.min,
                 xmax = lon.max,
                 ymin = lat.min,
                 ymax = lat.max,
-                fill = factor(cluster))) +
+                fill = factor(cluster)),
+            alpha = 0.5) +
+  geom_point(data = (high_res %>% 
+               filter(cluster <= 5) %>% 
+               mutate(cluster = case_when(
+                 cluster == 1 ~ 'DVM 1',
+                 cluster == 2 ~ 'Epipelagic',
+                 cluster == 3 ~ 'DVM 2',
+                 cluster == 4 ~ 'DVM 3',
+                 cluster == 5 ~ 'DVM 4'),
+                 cluster = factor(cluster, levels = c(
+                   'Epipelagic',
+                   'DVM 1',
+                   'DVM 2',
+                   'DVM 3',
+                   'DVM 4')))),
+             aes(x = x, y = y),
+             color = 'grey22',
+             alpha = 0.6,
+             shape = 20) +
+  geom_hline(aes(yintercept = med.lat),
+             linetype = 'dashed',
+             alpha = 0.8) +
+  geom_vline(aes(xintercept = med.lon),
+             linetype = 'dashed',
+             alpha = 0.8) +
+  geom_point(aes(x = med.lon,
+                 y = med.lat),
+             color = 'red',
+             size = 3) +
+  scale_fill_manual(values = c("#FFFF5CFF",
+                               "#78CEA3FF",
+                               "#488E9EFF",
+                               "#404C8BFF",
+                               "#281A2CFF"),
+                    name = 'Cluster') +
+  scale_color_manual(values = c("#FFFF5CFF",
+                               "#78CEA3FF",
+                               "#488E9EFF",
+                               "#404C8BFF",
+                               "#281A2CFF"),
+                    name = 'Cluster') +
   coord_sf(xlim = c(-80, -35), ylim = c(9, 45)) +
+  guides(color = 'none') +
   facet_wrap(~cluster)
