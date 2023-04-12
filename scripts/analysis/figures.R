@@ -944,15 +944,15 @@ high_res %>%
       'DVM 1',
       'Epipelagic',
       'All Data'))) %>% 
-  mutate(yday = lubridate::yday(Date),
-         # add a correction to center yday on tag date
-         yday = if_else(
+  mutate(yday = lubridate::yday(Date)) %>% 
+  # add a correction to center yday on tag date
+  mutate(yday = if_else(
            yday >=238,
            (yday - 238),
            (yday + 127))) %>%  # pull(yday) %>% summary()
   ggplot(aes(x = cluster, y = yday, fill = cluster)) +
   geom_jitter(aes(color = cluster), alpha = 0.4) +
-  geom_boxplot(alpha = 0.75) +
+  geom_boxplot(alpha = 0.75) + 
   scale_fill_manual(values = c("#281A2CFF",
                                "#404C8BFF",
                                "#488E9EFF",
@@ -966,6 +966,25 @@ high_res %>%
                                "#78CEA3FF",
                                "#FFFF5CFF",
                                '#AAAAAAAA')) +
+  # add extent of the seasons
+  geom_rect(aes(ymin = 0,
+                ymax = 27,
+                xmin = 0,
+                xmax = 7),
+            fill = 'coral2',
+            alpha = 0.02) +
+  geom_rect(aes(ymin = 27,
+                ymax = 117,
+                xmin = 0,
+                xmax = 7),
+            fill = 'gold3',
+            alpha = 0.02) +
+  geom_rect(aes(ymin = 117,
+                ymax = 205,
+                xmin = 0,
+                xmax = 7),
+            fill = 'dodgerblue',
+            alpha = 0.02) +
   labs(x = 'Cluster', y = 'Days since Tagging') +
   guides(color = 'none') +
   coord_flip() +
