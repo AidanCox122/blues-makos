@@ -931,17 +931,17 @@ high_res %>%
            filter(cluster <= 5) %>% 
            mutate(cluster = 0))) %>% 
   mutate(cluster = case_when(
-    cluster == 1 ~ 'DVM 1',
+    cluster == 1 ~ 'Shallow DVM',
     cluster == 2 ~ 'Epipelagic',
-    cluster == 3 ~ 'DVM 2',
-    cluster == 4 ~ 'DVM 3',
-    cluster == 5 ~ 'DVM 4',
+    cluster == 3 ~ 'Winter DVM',
+    cluster == 4 ~ 'Oscillatory DVM',
+    cluster == 5 ~ 'Deep DVM',
     cluster == 0 ~ 'All Data'),
     cluster = factor(cluster, levels = c(
-      'DVM 4',
-      'DVM 3',
-      'DVM 2',
-      'DVM 1',
+      'Deep DVM',
+      'Oscillatory DVM',
+      'Winter DVM',
+      'Shallow DVM',
       'Epipelagic',
       'All Data'))) %>% 
   mutate(yday = lubridate::yday(Date)) %>% 
@@ -952,6 +952,28 @@ high_res %>%
            (yday + 127))) %>%  # pull(yday) %>% summary()
   ggplot(aes(x = cluster, y = yday, fill = cluster)) +
   geom_jitter(aes(color = cluster), alpha = 0.4) +
+  # add extent of the seasons
+  geom_rect(aes(ymin = 0,
+                ymax = 27,
+                xmin = 0,
+                xmax = 7),
+            fill = 'grey80',
+            color = 'grey75',
+            alpha = 0.01) +
+  geom_rect(aes(ymin = 27,
+                ymax = 117,
+                xmin = 0,
+                xmax = 7),
+            fill = NA,
+            color = 'grey75',
+            alpha = 0.02) +
+  geom_rect(aes(ymin = 117,
+                ymax = 205,
+                xmin = 0,
+                xmax = 7),
+            fill = 'grey80',
+            color = 'grey75',
+            alpha = 0.01) +
   geom_boxplot(alpha = 0.75) + 
   scale_fill_manual(values = c("#281A2CFF",
                                "#404C8BFF",
@@ -966,25 +988,10 @@ high_res %>%
                                "#78CEA3FF",
                                "#FFFF5CFF",
                                '#AAAAAAAA')) +
-  # add extent of the seasons
-  geom_rect(aes(ymin = 0,
-                ymax = 27,
-                xmin = 0,
-                xmax = 7),
-            fill = 'coral2',
-            alpha = 0.02) +
-  geom_rect(aes(ymin = 27,
-                ymax = 117,
-                xmin = 0,
-                xmax = 7),
-            fill = 'gold3',
-            alpha = 0.02) +
-  geom_rect(aes(ymin = 117,
-                ymax = 205,
-                xmin = 0,
-                xmax = 7),
-            fill = 'dodgerblue',
-            alpha = 0.02) +
+  scale_y_continuous(limits = c(0, 275)) +
+  annotate("text", x = 0.25, y = 65, label = "Fall", size = 3) +
+  annotate("text", x = 0.25, y = 160, label = "Winter", size = 3) +
+  annotate("text", x = 0.25, y = 255, label = "Spring", size = 3) +
   labs(x = 'Cluster', y = 'Days since Tagging') +
   guides(color = 'none') +
   coord_flip() +

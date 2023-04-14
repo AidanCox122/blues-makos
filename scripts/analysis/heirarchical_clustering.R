@@ -55,6 +55,7 @@ bins <- c(0, 10, 50, 100, 200, 300, 400, 500, 2000)
 ## 1. WHO: what was the frequency of clusters between species? ----
 
 high_res %>% 
+  filter(cluster <= 5) %>% 
   group_by(species, cluster) %>% 
   summarize(n = n())
 
@@ -117,7 +118,7 @@ high_res %>%
     'night.300-400' = mean(n.b6),
     'night.400-500' = mean(n.b7),
     'night.500-2000' = mean(n.b8),
-    n.sd = mean(n.sd)) %>% #View()
+    n.sd = mean(n.sd)) %>% View()
 
   # how much time did sharks spend in the mesopelagic across clusters?
   group_by(cluster) %>% 
@@ -238,11 +239,11 @@ high_res %>%
 high_res %>%
   filter(cluster <= 5) %>% 
   mutate(cluster = case_when(
-    cluster == 1 ~ 'DVM 1',
+    cluster == 1 ~ 'Shallow DVM',
     cluster == 2 ~ 'Epipelagic',
-    cluster == 3 ~ 'DVM 2',
-    cluster == 4 ~ 'DVM 3',
-    cluster == 5 ~ 'DVM 4')) %>% 
+    cluster == 3 ~ 'Winter DVM',
+    cluster == 4 ~ 'Oscillatory DVM',
+    cluster == 5 ~ 'Deep DVM')) %>% 
   rbind((high_res %>% 
            filter(cluster <= 5) %>% 
            mutate(cluster = 0))) %>% 
@@ -252,13 +253,15 @@ high_res %>%
            yday >=238,
            (yday - 238),
            (yday + 127))) %>%  # pull(yday) %>% summary()
-  ggplot(aes(x = cluster, y = yday, fill = factor(cluster))) +
-  geom_boxplot() +
-  geom_jitter(alpha = 0.5) +
-  facet_wrap(~species)
-
-
-  group_by(cluster) %>% 
+  mutate(season = 
+           case_when(
+             yday < 27 ~ 'Summer',
+             yday >= 27 & yday < 117 ~ 'Fall',
+             yday >= 117 & yday < 205 ~ 'Winter',
+             yday >= 205 & yday < 298 ~ 'Spring',
+             yday >= 298 ~ 'Summer')) %>% 
+  group_by(cluster, season) %>% 
+  summarize(count = n()) %>% View()
   summarize(
     min = min(yday),
     q1 = quantile(yday, 0.25),
