@@ -15,11 +15,25 @@ combo_mod <-
   high_res %>% 
   # remove rare clusters
   filter(cluster <= 5 ) %>% 
+  # reset cluster names
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'DVM 1',
+    cluster == 2 ~ 'Epipelagic',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4'),
+    cluster = factor(cluster, levels = c(
+      'Epipelagic', 
+      'DVM 1', 
+      'DVM 2', 
+      'DVM 3',
+      'DVM 4')
+    )) %>%
   # set the reference level to the most common cluster
   mutate(
     clus2 = relevel(
       as.factor(cluster),
-      ref = 1),
+      ref = 'DVM 1'),
     # reference as blue sharks because we have more tags from them
     species = relevel(
       as.factor(species),
@@ -138,16 +152,115 @@ get_weight(base = c('ssh',
                     'lunar:species',
                     'n2:species'))
 
-# none of the interactions terms improve the base model
+# ssh:n2 interaction improves model
+
+get_weight(base = c('ssh',
+                    'ssh_sd',
+                    'lunar',
+                    'species',
+                    'n2',
+                    'ssh:n2'),
+           test = c('ssh:ssh_sd', 
+                    'ssh:lunar',
+                    'ssh:species',
+                    'ssh_sd:lunar',
+                    'ssh_sd:n2',
+                    'ssh_sd:species',
+                    'lunar:n2',
+                    'lunar:species',
+                    'n2:species'))
+
+# ssh:lunar is next improvement, but removes effect of ssh on epipelagic
+# some argument for stopping here
+
+get_weight(base = c('ssh',
+                    'ssh_sd',
+                    'lunar',
+                    'species',
+                    'n2',
+                    'ssh:n2',
+                    'ssh:lunar'),
+           test = c('ssh:ssh_sd', 
+                    'ssh:species',
+                    'ssh_sd:lunar',
+                    'ssh_sd:n2',
+                    'ssh_sd:species',
+                    'lunar:n2',
+                    'lunar:species',
+                    'n2:species'))
+
+# ssh_sd:lunar is next improvement
+
+get_weight(base = c('ssh',
+                    'ssh_sd',
+                    'lunar',
+                    'species',
+                    'n2',
+                    'ssh:n2',
+                    'ssh:lunar',
+                    'ssh_sd:lunar'),
+           test = c('ssh:ssh_sd', 
+                    'ssh:species',
+                    'ssh_sd:n2',
+                    'ssh_sd:species',
+                    'lunar:n2',
+                    'lunar:species',
+                    'n2:species'))
+
+# ssh_sd:species is next
+
+get_weight(base = c('ssh',
+                    'ssh_sd',
+                    'lunar',
+                    'species',
+                    'n2',
+                    'ssh:n2',
+                    'ssh:lunar',
+                    'ssh_sd:lunar',
+                    'ssh_sd:species'),
+           test = c('ssh:ssh_sd', 
+                    'ssh:species',
+                    'ssh_sd:n2',
+                    'lunar:n2',
+                    'lunar:species',
+                    'n2:species'))
+
+# next is effect of n2 on species
+
+get_weight(base = c('ssh',
+                    'ssh_sd',
+                    'lunar',
+                    'species',
+                    'n2',
+                    'ssh:n2',
+                    'ssh:lunar',
+                    'ssh_sd:lunar',
+                    'ssh_sd:species',
+                    'n2:species'),
+           test = c('ssh:ssh_sd', 
+                    'ssh:species',
+                    'ssh_sd:n2',
+                    'lunar:n2',
+                    'lunar:species'))
 
 # predictor performance ---------------------------------------------------
 
 # what is the significance level of each predictor?
 m.mod <- 
   mblogit(
-    formula = clus2 ~ ssh + ssh_sd + lunar + species,
+    formula = clus2 ~ ssh +
+      ssh_sd +
+      lunar + species +
+      n2 +
+      ssh:n2 +
+      ssh:lunar +
+      ssh_sd:lunar +
+      ssh_sd:species +
+      n2:species,
     random = ~1|ptt,
     data = combo_mod)
+
+summary(m.mod)
 
 # How much deviance is explained by each predictor
 null <- 
