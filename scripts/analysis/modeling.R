@@ -243,6 +243,22 @@ get_weight(base = c('ssh',
                     'lunar:n2',
                     'lunar:species'))
 
+# what happens if we remove species as a fixed effect
+get_weight(base = c('ssh',
+                    'ssh_sd',
+                    'lunar',
+                    'n2',
+                    'ssh:n2',
+                    'ssh:lunar',
+                    'ssh_sd:lunar',
+                    'ssh_sd:species',
+                    'n2:species'),
+           test = c(
+             'species'
+           ))
+
+# species is best included as an interaction term
+
 # predictor performance ---------------------------------------------------
 
 # what is the significance level of each predictor?
@@ -250,13 +266,13 @@ m.mod <-
   mblogit(
     formula = clus2 ~ ssh +
       ssh_sd +
-      lunar + species +
+      lunar +
       n2 +
       ssh:n2 +
       ssh:lunar +
       ssh_sd:lunar +
-      ssh_sd:species +
-      n2:species,
+      ssh_sd:species + 
+      species:n2,
     random = ~1|ptt,
     data = combo_mod)
 
