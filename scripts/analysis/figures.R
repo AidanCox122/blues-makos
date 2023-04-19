@@ -933,14 +933,14 @@ high_res %>%
   mutate(cluster = case_when(
     cluster == 1 ~ 'Shallow DVM',
     cluster == 2 ~ 'Epipelagic',
-    cluster == 3 ~ 'Winter DVM',
-    cluster == 4 ~ 'Oscillatory DVM',
+    cluster == 3 ~ 'Offshore DVM',
+    cluster == 4 ~ 'Swing DVM',
     cluster == 5 ~ 'Deep DVM',
     cluster == 0 ~ 'All Data'),
     cluster = factor(cluster, levels = c(
       'Deep DVM',
-      'Oscillatory DVM',
-      'Winter DVM',
+      'Swing DVM',
+      'Offshore DVM',
       'Shallow DVM',
       'Epipelagic',
       'All Data'))) %>% 
@@ -1011,17 +1011,17 @@ high_res %>%
             med.lon = median(x),
             med.lat = median(y)) %>% 
   mutate(cluster = case_when(
-    cluster == 1 ~ 'DVM 1',
+    cluster == 1 ~ 'Shallow DVM',
     cluster == 2 ~ 'Epipelagic',
-    cluster == 3 ~ 'DVM 2',
-    cluster == 4 ~ 'DVM 3',
-    cluster == 5 ~ 'DVM 4'),
+    cluster == 3 ~ 'Offshore DVM',
+    cluster == 4 ~ 'Swing DVM',
+    cluster == 5 ~ 'Deep DVM'),
     cluster = factor(cluster, levels = c(
       'Epipelagic',
-      'DVM 1',
-      'DVM 2',
-      'DVM 3',
-      'DVM 4'))) %>% 
+      'Shallow DVM',
+      'Offshore DVM',
+      'Swing DVM',
+      'Deep DVM'))) %>% 
   ggplot() +
   geom_sf(data = world) +
   geom_rect(aes(xmin = lon.min,
@@ -1033,17 +1033,17 @@ high_res %>%
   geom_point(data = (high_res %>% 
                filter(cluster <= 5) %>% 
                mutate(cluster = case_when(
-                 cluster == 1 ~ 'DVM 1',
+                 cluster == 1 ~ 'Shallow DVM',
                  cluster == 2 ~ 'Epipelagic',
-                 cluster == 3 ~ 'DVM 2',
-                 cluster == 4 ~ 'DVM 3',
-                 cluster == 5 ~ 'DVM 4'),
+                 cluster == 3 ~ 'Offshore DVM',
+                 cluster == 4 ~ 'Swing DVM',
+                 cluster == 5 ~ 'Deep DVM'),
                  cluster = factor(cluster, levels = c(
                    'Epipelagic',
-                   'DVM 1',
-                   'DVM 2',
-                   'DVM 3',
-                   'DVM 4')))),
+                   'Shallow DVM',
+                   'Offshore DVM',
+                   'Swing DVM',
+                   'Deep DVM')))),
              aes(x = x, y = y),
              color = 'grey22',
              alpha = 0.6,
@@ -1072,4 +1072,5 @@ high_res %>%
                     name = 'Cluster') +
   coord_sf(xlim = c(-80, -35), ylim = c(9, 45)) +
   guides(color = 'none') +
+  labs(x = 'Longitude', y = 'Latitude') +
   facet_wrap(~cluster)
