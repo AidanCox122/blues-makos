@@ -310,7 +310,8 @@ m_species <-
     formula = clus2 ~ species,
     data = combo_mod)
 
-1 - (m_ssh_sd$deviance/null$deviance)
+
+1 - (m_ssh$deviance/null$deviance) # should create a loop to do this automatically someday
 
 
 

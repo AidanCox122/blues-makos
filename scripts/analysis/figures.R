@@ -415,8 +415,30 @@ leaf.clusters <-
 leaf.key <- data.frame(
   species = leaf.species,
   index = leaf.index,
-  cluster = leaf.clusters
-)
+  cluster = leaf.clusters) %>% 
+  mutate(clusterName = 
+           case_when(
+             cluster == 1 ~ 'DVM 1',
+             cluster == 2 ~ 'Epipelagic',
+             cluster == 3 ~ 'DVM 2',
+             cluster == 4 ~ 'DVM 3',
+             cluster == 5 ~ 'DVM 5',
+             cluster >= 6 ~ as.character(cluster)),
+         clusterName = factor(clusterName, 
+                          levels = c('Epipelagic',
+                                     'DVM 1',
+                                     'DVM 2',
+                                     'DVM 3',
+                                     'DVM 4',
+                                     'DVM 5',
+                                     '6',
+                                     '7',
+                                     '8',
+                                     '9',
+                                     '10',
+                                     '11',
+                                     '12'),
+                          ordered = T)) 
 
 rm(leaf.species,
    leaf.index,
@@ -434,24 +456,32 @@ rare <- list(
   eleven = c(413),
   twelve = c(642))
 
+# create a key for common clusters
+color.leafs <- 
+  leaf.key %>%
+  filter(cluster <= 5) %>% 
+  # order of the leaves on the pruned tree
+  mutate(order = seq(1:760)) %>% 
+  arrange(clusterName)
+
 # prune the leaves of rare clusters
 pruned_dendro <- 
   cluster_dendro %>% 
   prune(
-    (rare %>% unlist))
-
-# create a key for common clusters
-color.leafs <- 
-  leaf.key %>%
-  filter(cluster <= 5)
+    (rare %>% unlist)) 
+  
+# reorder the leaves so clusters progress from shallowest to deepest
+ordered_dendro <-
+  pruned_dendro %>% 
+  rotate(color.leafs$order)
 
 # assign cluster labels to pruned dendrogram
-labels_colors(pruned_dendro) <- 
+labels_colors(ordered_dendro) <- 
   color.leafs$cluster
 
 # color the labels by cluster 
-labels_colors(pruned_dendro)
-plot(pruned_dendro)
+labels_colors(ordered_dendro)
+plot(ordered_dendro)
 
 # make a list of ggplot colors
 cmocean("deep")(5)
@@ -460,7 +490,7 @@ show_col(cmocean("deep")(5))
 # color the branches of the dendrogram by cluster: 
 color_dendro <- 
   color_branches(
-    pruned_dendro,
+    ordered_dendro,
     clusters = color.leafs$cluster,
     col = c("#FFFF5CFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF")) 
 plot(color_dendro)
@@ -931,17 +961,17 @@ high_res %>%
            filter(cluster <= 5) %>% 
            mutate(cluster = 0))) %>% 
   mutate(cluster = case_when(
-    cluster == 1 ~ 'R-S DVM',
+    cluster == 1 ~ 'DVM 1',
     cluster == 2 ~ 'Epipelagic',
-    cluster == 3 ~ 'R-R DVM',
-    cluster == 4 ~ 'D-S DVM',
-    cluster == 5 ~ 'D-R DVM',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4',
     cluster == 0 ~ 'All Data'),
     cluster = factor(cluster, levels = c(
-      'D-R DVM',
-      'D-S DVM',
-      'R-R DVM',
-      'R-S DVM',
+      'DVM 4',
+      'DVM 3',
+      'DVM 2',
+      'DVM 1',
       'Epipelagic',
       'All Data'))) %>% 
   mutate(yday = lubridate::yday(Date)) %>% 
@@ -1011,16 +1041,16 @@ high_res %>%
             med.lon = median(x),
             med.lat = median(y)) %>% 
   mutate(cluster = case_when(
-    cluster == 1 ~ 'R-S DVM',
+    cluster == 1 ~ 'DVM 1',
     cluster == 2 ~ 'Epipelagic',
-    cluster == 3 ~ 'R-R DVM',
-    cluster == 4 ~ 'D-S DVM',
-    cluster == 5 ~ 'D-R DVM'),
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4'),
     cluster = factor(cluster, levels = c(
-      'R-S DVM',
-      'R-R DVM',
-      'D-S DVM',
-      'D-R DVM',
+      'DVM 1',
+      'DVM 2',
+      'DVM 3',
+      'DVM 4',
       'Epipelagic'))) %>% 
   ggplot() +
   geom_sf(data = world) +
@@ -1033,16 +1063,16 @@ high_res %>%
   geom_point(data = (high_res %>% 
                filter(cluster <= 5) %>% 
                mutate(cluster = case_when(
-                 cluster == 1 ~ 'R-S DVM',
+                 cluster == 1 ~ 'DVM 1',
                  cluster == 2 ~ 'Epipelagic',
-                 cluster == 3 ~ 'R-R DVM',
-                 cluster == 4 ~ 'D-S DVM',
-                 cluster == 5 ~ 'D-R DVM'),
+                 cluster == 3 ~ 'DVM 2',
+                 cluster == 4 ~ 'DVM 3',
+                 cluster == 5 ~ 'DVM 4'),
                  cluster = factor(cluster, levels = c(
-                   'R-S DVM',
-                   'R-R DVM',
-                   'D-S DVM',
-                   'D-R DVM',
+                   'DVM 1',
+                   'DVM 2',
+                   'DVM 3',
+                   'DVM 4',
                    'Epipelagic')))),
              aes(x = x, y = y),
              color = 'grey22',
