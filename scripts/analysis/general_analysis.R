@@ -15,6 +15,9 @@ bathy_stmp <- read_rds('data/raw/bathymetry.rds')
 
 high_res <- read_csv('data/clean/high_resolution_summaries.csv')
 
+#define standard error of mean function
+std.error <- function(x) sd(x)/sqrt(length(x))
+
 # general movement summaries ----------------------------------------------
 
 # find number of days occuring over the continental shelf
@@ -39,10 +42,12 @@ complete_series_0.5 <-
 
 ## average maximum depth by species----
 complete_series_0.5 %>%
-  group_by(species, kode) %>% # maximum across individual days
+  group_by(species, ptt, kode) %>% # maximum across individual days
   summarize(max = max(depth)) %>%
+  group_by(species, ptt) %>% 
+  summarize(all_max = max(max), mean = mean(max)) %>% 
   group_by(species) %>%
-  summarize(all_max = max(max), mean = mean(max))
+  summarize(all_max = max(all_max), grandMean = mean(mean), StErr = std.error(mean))
 
 ## location distribution----
 # where do most of the track locations fall?
@@ -78,13 +83,39 @@ complete_series_0.5 %>%
     0)) %>% # View()
   # specify during day 'd' or night 'n' periods
   filter(dn == 'n') %>% 
-  group_by(kode, species) %>% 
+  group_by(kode, ptt, species) %>% 
   summarize(n = n(),
-            above.200 = sum(epipelagic)/n,
+            propAbove200 = sum(epipelagic)/n,
             .groups = 'drop') %>% 
+  group_by(ptt, species) %>% 
+  summarize(meanEpiProp = mean(propAbove200)) %>% 
   group_by(species) %>% 
-  summarize(epi = mean(above.200))
+  summarize(propEpi = mean(meanEpiProp),
+            StDev = sd(meanEpiProp),
+            minEpi = min(meanEpiProp),
+            maxEpi = max(meanEpiProp))
 
+# calculate the percentage of time in the mesopelagic
+complete_series_0.5 %>% 
+  mutate(mesopelagic = if_else(
+    depth > 200,
+    1,
+    0)) %>% # View()
+  # specify during day 'd' or night 'n' periods
+  filter(dn == 'd') %>% 
+  group_by(kode, ptt, species) %>% 
+  summarize(n = n(),
+            propBelow200 = sum(mesopelagic)/n,
+            .groups = 'drop') %>% 
+  group_by(ptt, species) %>% 
+  summarize(meanMesoProp = mean(propBelow200)) %>% 
+  group_by(species) %>% 
+  summarize(propMeso = mean(meanMesoProp),
+            StDev = sd(meanMesoProp),
+            minMeso = min(meanMesoProp),
+            maxMeso = max(meanMesoProp))
+
+# binned time-at-depth breakdown 
 complete_series_0.5 %>% 
   filter(dn == 'd') %>% 
   group_by(kode, species) %>% 
