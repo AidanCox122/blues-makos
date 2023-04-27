@@ -65,6 +65,32 @@ high_res %>%
   group_by(species, cluster) %>% 
   summarize(uniqueIndividuals = n_distinct(ptt))
 
+# are a few individuals driving specific clusters
+high_res %>% 
+  filter(cluster <=5) %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'DVM 1',
+    cluster == 2 ~ 'Epipelagic',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4')) %>%
+  group_by(species, ptt, cluster) %>% 
+  summarize(count = n()) %>% 
+  left_join(
+    high_res %>% 
+              filter(cluster <=5) %>% 
+              mutate(cluster = case_when(
+                cluster == 1 ~ 'DVM 1',
+                cluster == 2 ~ 'Epipelagic',
+                cluster == 3 ~ 'DVM 2',
+                cluster == 4 ~ 'DVM 3',
+                cluster == 5 ~ 'DVM 4')) %>%
+              group_by(species, ptt) %>% 
+              summarize(total = n())) %>% 
+  mutate(percObs = count / total) %>% 
+  group_by(species, cluster) %>% 
+  summarize(avgPercObs = mean(percObs), sd = sd(percObs))
+
 ## 2. WHAT: what did each cluster look like ----
 
 combo_series %>%
@@ -96,7 +122,7 @@ high_res %>%
     cluster == 3 ~ 'DVM 2',
     cluster == 4 ~ 'DVM 3',
     cluster == 5 ~ 'DVM 4')) %>%
-  group_by(cluster) %>% 
+  group_by(ptt, cluster) %>% 
   summarise(
     # daytime bins
     'day.0-10' = mean(d.b1),
@@ -108,6 +134,8 @@ high_res %>%
     'day.400-500' = mean(d.b7),
     'day.500-2000' = mean(d.b8),
     d.sd = mean(d.sd),
+    'd.epi' = sum(c(`day.0-10`, `day.10-50`, `day.50-100`, `day.100-200`)),
+    'd.meso' = sum(c(`day.200-300`, `day.300-400`, `day.400-500`, `day.500-2000`)),
     
     # nighttime bins
     'night.0-10' = mean(n.b1),
@@ -118,21 +146,21 @@ high_res %>%
     'night.300-400' = mean(n.b6),
     'night.400-500' = mean(n.b7),
     'night.500-2000' = mean(n.b8),
-    n.sd = mean(n.sd)) %>% View()
-
-  # how much time did sharks spend in the mesopelagic across clusters?
-  group_by(cluster) %>% 
-  summarise(
-    # daytime bins
-    'd.epi' = sum(c(`day.0-10`, `day.10-50`, `day.50-100`, `day.100-200`)),
-    'd.meso' = sum(c(`day.200-300`, `day.300-400`, `day.400-500`, `day.500-2000`)),
-    
-    # nighttime bins
+    n.sd = mean(n.sd),
     'n.epi' = sum(c(`night.0-10`, `night.10-50`, `night.50-100`, `night.100-200`)),
-    'n.meso' = sum(c(`night.200-300`, `night.300-400`, `night.400-500`, `night.500-2000`)))
+    'n.meso' = sum(c(`night.200-300`, `night.300-400`, `night.400-500`, `night.500-2000`))) %>% #View() 
+  # average mesopelagic and epipelagic occupancy by cluster
+  group_by(cluster) %>% 
+  summarise(day.epi = mean(d.epi),
+            d.epi.sd = sd(d.epi),
+            day.meso = mean(d.meso),
+            d.meso.sd = sd(d.meso),
+            night.epi = mean(n.epi),
+            n.epi.sd = sd(n.epi),
+            night.meso = mean(n.meso),
+            n.meso.sd = sd(n.meso))
 
   # dive profiles
-
 
 # environmental conditions within each cluster
 high_res %>%
