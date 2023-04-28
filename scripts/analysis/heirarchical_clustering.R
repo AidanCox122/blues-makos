@@ -75,7 +75,7 @@ high_res %>%
     cluster == 4 ~ 'DVM 3',
     cluster == 5 ~ 'DVM 4')) %>%
   group_by(species, ptt, cluster) %>% 
-  summarize(count = n()) %>% 
+  summarize(count = n()) %>% #pivot_wider(names_from = cluster, values_from = count)
   left_join(
     high_res %>% 
               filter(cluster <=5) %>% 
@@ -86,7 +86,7 @@ high_res %>%
                 cluster == 4 ~ 'DVM 3',
                 cluster == 5 ~ 'DVM 4')) %>%
               group_by(species, ptt) %>% 
-              summarize(total = n())) %>% 
+              summarize(total = n())) %>% # group_by(species, ptt) %>% summarize(sum = sum(count), total = mean(total))
   mutate(percObs = count / total) %>% 
   group_by(species, cluster) %>% 
   summarize(avgPercObs = mean(percObs), sd = sd(percObs))
