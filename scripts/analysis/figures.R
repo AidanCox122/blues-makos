@@ -11,6 +11,7 @@ library(sf)
 library(raster)
 library(cmocean)
 library(HMMoce)
+library(scales)
 devtools::load_all('analyzePSAT')
 
 # create an object with continent boundaries
@@ -493,12 +494,21 @@ color_dendro <-
     ordered_dendro,
     clusters = color.leafs$cluster,
     col = c("#FFFF5CFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF")) 
+
+# create a pdf object for the dendrogram plot
+pdf(file = 'products/figures/figure3/color_dendrogram.pdf', width = 10, height = 7)
+
+# save the plot to the above pdf object
 plot(color_dendro)
+
+# unlink pdf object
+dev.off()
+
 
 ## fig. 3 subplots -------------------------------------------------------------
 
 # Step 1: recreate daily TAD summaries from series data
-## can't use those transmitted by tags due to lower coverage
+## can't use those transmitted by tags due to lower temporal resolution
 blue.bin.depth <- 
   combo_series %>% 
   filter(species == 'P.glauca') %>% 
@@ -564,7 +574,7 @@ rm(tad_combo, mako.bin.depth, blue.bin.depth)
 
 ggplot(data = heatmap_tad$c5) +
   geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
-  scale_fill_viridis(limits = c(0,75), oob = scales::squish) +
+  scale_fill_gradientn(colors = viridis(100), limits = c(0,50), oob = scales::squish) +
   theme_minimal() +
   scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
   theme(aspect.ratio = 20/10)
