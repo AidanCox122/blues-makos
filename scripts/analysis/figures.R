@@ -564,20 +564,33 @@ add_rows <- function(x) {
 }
   
 heatmap_tad <- 
-  c(1:8) %>% 
+  c(1:12) %>% 
   map(
     ~ add_rows(.)
   ) %>% 
-  set_names(paste('c', c(1:8), sep = ''))
+  set_names(paste('c', c(1:12), sep = ''))
 
 rm(tad_combo, mako.bin.depth, blue.bin.depth)
 
-ggplot(data = heatmap_tad$c5) +
-  geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
-  scale_fill_gradientn(colors = viridis(100), limits = c(0,50), oob = scales::squish) +
-  theme_minimal() +
-  scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-  theme(aspect.ratio = 20/10)
+# plot and save the heatmaps
+for(x in names(heatmap_tad)) {
+  heatmap <- 
+    ggplot(data = heatmap_tad[[x]]) +
+    geom_tile(aes(x = Row, y = bin, fill = perc), linejoin = "round") +
+    scale_fill_gradientn(colors = viridis(100), limits = c(0,50), oob = scales::squish) +
+    labs(x = 'Day', y = 'Depth (m)', title = x) +
+    theme_minimal() +
+    scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
+    theme(aspect.ratio = 20/10)
+  
+  ggsave(plot = heatmap,
+         filename = paste('products/figures/figure3/', x, '.png', sep = ''),
+         width = 300,
+         height = 240,
+         units = 'mm')
+}
+
+
 
 
 # figure 4 ----------------------------------------------------------------
