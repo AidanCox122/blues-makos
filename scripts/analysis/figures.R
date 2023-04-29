@@ -580,6 +580,7 @@ for(x in names(heatmap_tad)) {
     scale_fill_gradientn(colors = viridis(100), limits = c(0,50), oob = scales::squish) +
     labs(x = 'Day', y = 'Depth (m)', title = x) +
     theme_minimal() +
+    theme(legend.position = 'top')+
     scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
     theme(aspect.ratio = 20/10)
   
