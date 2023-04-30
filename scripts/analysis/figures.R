@@ -611,10 +611,10 @@ cluster_series <-
          cluster = factor(cluster, levels = c('Epipelagic', 'DVM 1', 'DVM 2', 'DVM 3', 'DVM 4'), ordered = T))
   
 ggplot(data = cluster_series, aes(x = Local_Time, y = depth) ) +
-  stat_bin_2d(aes(fill = (log10((..ndensity..)+0.01))), geom = "tile", bins = c(100, 100)) +
+  stat_bin_2d(aes(fill = log10(after_stat(ndensity))), geom = "tile", bins = c(100, 100)) +
   scale_fill_cmocean(name = "dense") + 
   labs(fill = "Relative Density (log)") +
-  scale_y_reverse(limits = c(1000, 0), breaks = c(0, 500, 1000), labels = c("0", "500", "1000")) +
+  scale_y_reverse() +
   scale_x_continuous(breaks = c(21600, 64800), labels = c("06:00", "18:00")) +
   xlab("Local Time") +
   ylab("Depth (m)") +
