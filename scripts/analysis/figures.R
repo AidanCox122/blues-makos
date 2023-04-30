@@ -619,7 +619,8 @@ ggplot(data = cluster_series, aes(x = Local_Time, y = depth) ) +
   xlab("Local Time") +
   ylab("Depth (m)") +
   facet_grid(species.x~cluster) +
-  theme_linedraw()
+  theme_linedraw() +
+  theme(legend.position = 'bottom')
 
 # figure 5 ----------------------------------------------------------------
 
