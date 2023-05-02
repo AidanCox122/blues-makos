@@ -636,11 +636,25 @@ combo_mod <-
   high_res %>% 
   # remove rare clusters
   filter(cluster <= 5 ) %>% 
+  # reset cluster names
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'DVM 1',
+    cluster == 2 ~ 'Epipelagic',
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4'),
+    cluster = factor(cluster, levels = c(
+      'Epipelagic', 
+      'DVM 1', 
+      'DVM 2', 
+      'DVM 3',
+      'DVM 4')
+    )) %>%
   # set the reference level to the most common cluster
   mutate(
     clus2 = relevel(
       as.factor(cluster),
-      ref = 1),
+      ref = 'DVM 1'),
     # reference as blue sharks because we have more tags from them
     species = relevel(
       as.factor(species),
@@ -677,9 +691,18 @@ combo_mod <-
       # setting lunar to a factor with reference 1
       as.factor(lunar), ref = 1))
 
+# train the best fitting model
 m.mod <- 
   mblogit(
-    formula = clus2 ~ ssh + ssh_sd + lunar + species,
+    formula = clus2 ~ ssh +
+      ssh_sd +
+      lunar +
+      n2 +
+      ssh:n2 +
+      ssh:lunar +
+      ssh_sd:lunar +
+      ssh_sd:species + 
+      species:n2,
     random = ~1|ptt,
     data = combo_mod)
 
@@ -687,11 +710,12 @@ m.mod <-
 
 # vary ssh while holding other predictors constant
 p_ssh <- 
-  data.frame(
+  tibble(
     ssh = rep(seq(-1,1, 0.025),times = 34), 
-    lunar = as.factor(rep(rep(c(0,1),each = 81),times = 17)),
+    lunar = as.factor(rep(rep(c(0,1),each = 81), times = 17)),
     # hold ssh_sd at the mean value
     ssh_sd = rep(c(0.02605838), times = 2754),
+    n2 = rep(c(1.472e-05), times = 2754),
     ptt = as.factor(rep(c("106754",
                           "133016",
                           "133017",
@@ -710,6 +734,32 @@ p_ssh <-
                           "163098",
                           "206771"),
                         each = 162))) %>% 
+  # bind to another tibble with high values of n2
+  rbind(
+    tibble(
+      ssh = rep(seq(-1,1, 0.025),times = 34), 
+      lunar = as.factor(rep(rep(c(0,1),each = 81), times = 17)),
+      # hold ssh_sd at the mean value
+      ssh_sd = rep(c(0.02605838), times = 2754),
+      n2 = rep(c(7.457e-05), times = 2754),
+      ptt = as.factor(rep(c("106754",
+                            "133016",
+                            "133017",
+                            "133018",
+                            "133021",
+                            "141247",
+                            "141254",
+                            "141255",
+                            "141256",
+                            "141257",
+                            "141258",
+                            "141259",
+                            "154096",
+                            "163096",
+                            "163097",
+                            "163098",
+                            "206771"),
+                          each = 162)))) %>% 
   left_join(high_res %>% 
               dplyr::select(ptt, species) %>%
               distinct() %>% 
@@ -730,13 +780,14 @@ p_ssh <-
        id.vars = c("ssh",
                    "lunar",
                    "ssh_sd",
+                   'n2',
                    "ptt",
                    "species"),
-       measure.vars = c("1",
-                        "2",
-                        "3",
-                        "4",
-                        "5")) %>% 
+       measure.vars = c("DVM 1",
+                        "Epipelagic",
+                        "DVM 2",
+                        "DVM 3",
+                        "DVM 4")) %>% 
   mutate(
     lunar = factor(lunar))
 
@@ -745,9 +796,11 @@ rm(p_ssh)
 # create a mean line by averaging all individuals 
 opall <- 
   lssh %>% 
-  group_by(ssh,
+  group_by(species, 
            variable,
-           species) %>%
+           ssh,
+           lunar,
+           n2) %>%
   summarize(
     # lower limit of predictions
     LL = min(value),
@@ -757,29 +810,38 @@ opall <-
     value = mean(value)) %>% 
   ungroup()
 
-# Set the depth order of the clusters
-opall$variable <- 
-  # order factors from shallowest to deepest behavior for color gradient
-  factor(opall$variable,
-         levels = c(2, 1, 3, 4, 5),
-         ordered = TRUE) 
-
-# plot relationships for makos
-ggplot(data = lssh) + 
-  geom_path(aes(x = ssh, y = value, color = (factor(variable,
-                                                    levels = c(2, 1, 3, 4, 5),
-                                                    ordered = TRUE) )), alpha = 0.25) +
-  geom_line(data = opall,aes(x = ssh, y = value, color = variable), size = 1.2, alpha = 1.2) +
+# plot relationships for blues
+opall %>% 
+  filter(species == 'P.glauca') %>%
+  ggplot(aes(x = ssh,
+             y = value,
+             color = variable)) + 
+  geom_ribbon(aes(x = ssh,
+                  ymin = LL,
+                  ymax = UL,
+                  fill = variable),
+              color = 'white',
+              linewidth = 0.25,
+              alpha = 0.25) +
+  geom_line(size = 1.5, alpha = 1.2) +
+  scale_x_continuous(expand = c(0,0.01)) +
+  scale_y_continuous(expand = c(0,0.01)) +
   # use this code to generate the below colors (with some edits to yellow): show_col(cmocean(name = 'deep')(5))
-  scale_color_manual(values = c("#FFFF5CFF",
-                                "#78CEA3FF",
+  scale_color_manual(values = c("#78CEA3FF",
+                                "#FFFF5CFF",
                                 "#488E9EFF",
                                 "#404C8BFF",
                                 "#281A2CFF")) +
-  facet_wrap(~species) + 
-  labs(color = "Cluster") +
+  scale_fill_manual(values = c("#78CEA3FF",
+                                "#FFFF5CFF",
+                                "#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF")) +
+  facet_wrap(n2~lunar) + 
+  labs(fill = "Cluster") +
+  guides(color = 'none') +
   ylab("Probability") +
-  theme_minimal()
+  theme_linedraw()
 
 ## Effect of SSH_SD -----------------------------------------------------------
 

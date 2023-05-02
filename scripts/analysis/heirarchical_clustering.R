@@ -267,11 +267,11 @@ high_res %>%
 high_res %>%
   filter(cluster <= 5) %>% 
   mutate(cluster = case_when(
-    cluster == 1 ~ 'Shallow DVM',
+    cluster == 1 ~ 'DVM 1',
     cluster == 2 ~ 'Epipelagic',
-    cluster == 3 ~ 'Winter DVM',
-    cluster == 4 ~ 'Oscillatory DVM',
-    cluster == 5 ~ 'Deep DVM')) %>% 
+    cluster == 3 ~ 'DVM 2',
+    cluster == 4 ~ 'DVM 3',
+    cluster == 5 ~ 'DVM 4')) %>% 
   rbind((high_res %>% 
            filter(cluster <= 5) %>% 
            mutate(cluster = 0))) %>% 
@@ -289,7 +289,7 @@ high_res %>%
              yday >= 205 & yday < 298 ~ 'Spring',
              yday >= 298 ~ 'Summer')) %>% 
   group_by(cluster, season) %>% 
-  summarize(count = n()) %>% View()
+  summarize(count = n()) # %>%  View()
   summarize(
     min = min(yday),
     q1 = quantile(yday, 0.25),
