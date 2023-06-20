@@ -14,6 +14,7 @@ high_res <- read_csv('data/clean/high_resolution_summaries.csv')
 combo_series <- 
   read_csv('data/clean/Series/combo_series.csv')
 
+world <- ne_countries(scale = "medium", returnclass = "sf")
 
 # clustering --------------------------------------------------------------
 
