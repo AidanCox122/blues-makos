@@ -316,9 +316,3 @@ m_species <-
 
 
 
-get_weight(base = c('ssh',
-                    'ssh_sd',
-                    'lunar',
-                    'species'),
-           test = c('n2 + n2:ssh'))
-

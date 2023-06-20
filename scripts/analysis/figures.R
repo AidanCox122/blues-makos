@@ -836,7 +836,7 @@ opall <-
 
 # plot relationships for blues
 opall %>% 
-  filter(species == 'P.glauca') %>%
+  filter(species == 'I.oxyrinchus') %>%
   ggplot(aes(x = ssh,
              y = value,
              color = variable)) + 
@@ -847,7 +847,7 @@ opall %>%
               color = 'white',
               linewidth = 0.25,
               alpha = 0.25) +
-  geom_line(size = 1.5, alpha = 1.2) +
+  geom_line(linewidth = 1.5, alpha = 1.2) +
   scale_x_continuous(expand = c(0,0.01)) +
   scale_y_continuous(expand = c(0,0.01)) +
   # use this code to generate the below colors (with some edits to yellow): show_col(cmocean(name = 'deep')(5))
@@ -874,8 +874,10 @@ p_ssh_sd <-
   data.frame(
     ssh_sd = rep(seq(0,0.13, 0.001625),times = 34), 
     lunar = as.factor(rep(rep(c(0,1),each = 81),times = 17)),
-    # hold ssh at the mean value
-    ssh = rep(c(-0.1304), times = 2754),
+    # hold n2 at median value
+    n2 = rep(c(3.096e-05), times = 2754),
+    # hold ssh at the median value
+    ssh = rep(c(-0.0500), times = 2754),
     ptt = as.factor(rep(c("106754",
                           "133016",
                           "133017",
@@ -914,14 +916,15 @@ lssh_sd <-
   reshape2::melt(p_ssh_sd,
        id.vars = c("ssh",
                    "lunar",
+                   'n2',
                    "ssh_sd",
                    "ptt",
                    "species"),
-       measure.vars = c("1",
-                        "2",
-                        "3",
-                        "4",
-                        "5"))
+       measure.vars = c("DVM 1",
+                        "Epipelagic",
+                        "DVM 2",
+                        "DVM 3",
+                        "DVM 4"))
 
 rm(p_ssh_sd)
 
@@ -929,6 +932,7 @@ rm(p_ssh_sd)
 op <- 
   lssh_sd %>% 
   group_by(ssh_sd,
+           lunar,
            variable,
            species) %>%
   summarize(
@@ -962,7 +966,37 @@ ggplot(data = lssh_sd) +
   ylab("Probability") +
   theme_minimal()
 
-
+op %>% 
+  ggplot(aes(x = ssh_sd,
+             y = value,
+             color = variable)) + 
+  geom_ribbon(aes(x = ssh_sd,
+                  ymin = LL,
+                  ymax = UL,
+                  fill = variable),
+              color = 'white',
+              linewidth = 0.25,
+              alpha = 0.25) +
+  geom_line(linewidth = 1.5, alpha = 1.2) +
+  scale_x_continuous(expand = c(0,0.01)) +
+  scale_y_continuous(expand = c(0,0.01)) +
+  # use this code to generate the below colors (with some edits to yellow): show_col(cmocean(name = 'deep')(5))
+  scale_color_manual(values = c("#78CEA3FF",
+                                "#FFFF5CFF",
+                                "#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF")) +
+  scale_fill_manual(values = c("#78CEA3FF",
+                               "#FFFF5CFF",
+                               "#488E9EFF",
+                               "#404C8BFF",
+                               "#281A2CFF")) +
+  facet_wrap(species~lunar) + 
+  labs(x = 'Sea-surface Height Standard Deviation (m)', 
+       y = 'Probability',
+       fill = "Cluster") +
+  guides(color = 'none') +
+  theme_linedraw()
 
 # supplementary -----------------------------------------------------------
 
