@@ -457,6 +457,13 @@ rare <- list(
   eleven = c(413),
   twelve = c(642))
 
+# create a key for all clusters
+color.leafs.all <- 
+  leaf.key %>%
+  # order of the leaves on the pruned tree
+  mutate(order = seq(1:786)) %>% 
+  arrange(clusterName)
+
 # create a key for common clusters
 color.leafs <- 
   leaf.key %>%
@@ -476,9 +483,18 @@ ordered_dendro <-
   pruned_dendro %>% 
   rotate(color.leafs$order)
 
+# for ALL clusters
+# ordered_dendro <-
+#   cluster_dendro %>% 
+#   rotate(color.leafs.all$order)
+
 # assign cluster labels to pruned dendrogram
 labels_colors(ordered_dendro) <- 
   color.leafs$cluster
+
+# # for ALL clusters
+# labels_colors(ordered_dendro) <- 
+#   color.leafs.all$cluster
 
 # color the labels by cluster 
 labels_colors(ordered_dendro)
@@ -494,6 +510,14 @@ color_dendro <-
     ordered_dendro,
     clusters = color.leafs$cluster,
     col = c("#FFFF5CFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF")) 
+
+# for ALL cclusters
+color_dendro <- 
+  color_branches(
+    ordered_dendro,
+    clusters = color.leafs.all$cluster,
+    col = c("#FFFF5CFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF",
+            'red', 'red', 'red', 'red', 'red', 'red', 'red' )) 
 
 # create a pdf object for the dendrogram plot
 pdf(file = 'products/figures/figure3/color_dendrogram.pdf', width = 10, height = 7)
