@@ -458,14 +458,20 @@ for (i in 4:length(makos)) {
 # blues
 for (i in 1:length(blues)) {
   hdr <- get_header(blues[i])
+  
   hdr <- dplyr::select(hdr, c(instrument_type, length_capture,
-                length_type_capture, length_unit_capture, lifestage_capture,
-                person_owner, ptt, friendly_name, sex, time_coverage_start,
-                time_coverage_end, geospatial_lat_start,
-                geospatial_lon_start, geospatial_lat_end,
-                geospatial_lon_end, taxonomic_serial_number))
+                              length_type_capture, length_unit_capture, lifestage_capture,
+                              person_owner, ptt, friendly_name, sex, time_coverage_start,
+                              time_coverage_end, geospatial_lat_start,
+                              geospatial_lon_start, geospatial_lat_end,
+                              geospatial_lon_end, taxonomic_serial_number)) %>% 
+    # add any columns containing waypoint information
+    cbind(hdr[str_detect(colnames(hdr), 'waypoints')])
   assign(paste("bHdr",i, sep = "_" ), hdr)
   rm(hdr)
+  
+  # select columns of interest
+  
   print(i)
 }
 
