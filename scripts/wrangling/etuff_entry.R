@@ -449,7 +449,7 @@ for (i in 4:length(makos)) {
                 person_owner, ptt, friendly_name, sex, time_coverage_start,
                 time_coverage_end, geospatial_lat_start,
                 geospatial_lon_start, geospatial_lat_end,
-                geospatial_lon_end, taxonomic_serial_number))
+                geospatial_lon_end, taxonomic_serial_number, waypoints_source))
   assign(paste("mHdr",i, sep = "_" ), hdr)
   rm(hdr)
   print(i)
@@ -464,16 +464,13 @@ for (i in 1:length(blues)) {
                               person_owner, ptt, friendly_name, sex, time_coverage_start,
                               time_coverage_end, geospatial_lat_start,
                               geospatial_lon_start, geospatial_lat_end,
-                              geospatial_lon_end, taxonomic_serial_number)) %>% 
-    # add any columns containing waypoint information
-    cbind(hdr[str_detect(colnames(hdr), 'waypoints')])
+                              geospatial_lon_end, taxonomic_serial_number, waypoints_source)) 
   assign(paste("bHdr",i, sep = "_" ), hdr)
   rm(hdr)
   
   # select columns of interest
   
-  print(i)
-}
+  print(i)}
 
 
 combo_hdr <- rbind(mHdr_4, mHdr_5, mHdr_6, mHdr_7,
