@@ -18,13 +18,14 @@ bathy_stmp <- read_rds('data/raw/bathymetry.rds')
 # series datasets for each of our tagged sharks
 
 # filter out tracking days with less than 60% of their data
+# we assume that missing observations occur randomly and therefore are equally likely at day and night times (for logistic ease)
 high_res <- combo_series %>%
   # group by individual
   group_by(ptt) %>%
   # count number of records from each date (576 is max. possible total)
   count(Date) %>% # View()
   # there are 675 (928) tracking days with more than 75% (60%) of their series data
-  filter(n >= 345) %>% 
+  filter(n >= 345) %>% # maximum possible = 576
   left_join(combo_series, by = c("Date", "ptt")) %>% 
   ungroup()
 
@@ -111,5 +112,5 @@ high_res <- high_res %>%
 # remove records which occur over <1000m
 high_res <- 
   high_res %>% 
-  filter(bathy <= -1000)
+  filter(bathy <= -1000) # n = 786
 
