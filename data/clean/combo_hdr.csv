@@ -1,0 +1,18 @@
+instrument_type,length_capture,length_type_capture,length_unit_capture,lifestage_capture,person_owner,ptt,friendly_name,sex,time_coverage_start,time_coverage_end,geospatial_lat_start,geospatial_lon_start,geospatial_lat_end,geospatial_lon_end,taxonomic_serial_number,waypoints_source
+popup,234,total length,cm,adult,Camrin Braun,141257,Oscar,male,2015-10-15T00:00:00Z,2016-04-12T00:00:00Z,41.63681667,-69.70575,37.7509,-71.6488,159924,Argos
+popup,185,fork length,cm,adult,Camrin Braun,163096,Errol Finn,male,2017-11-01T00:00:00Z,2018-02-02T00:00:00Z,41.80286667,-69.56995,36.7696,-61.4076,159924,Argos
+popup,208,fork length,cm,adult,Camrin Braun,163098,Yinzer,male,2017-11-03T00:00:00Z,2017-12-24T00:00:00Z,41.35,-69.35,39.2814,-63.2223,159924,modeled
+popup,240,total length,cm,adult,Camrin Braun,206771,Muscles,M,2021-10-08T00:00:00Z,2022-01-19T00:00:00Z,41.645083,-69.68855,39.5468,-71.6076,159924,modeled
+popup,274,total length,cm,adult,Camrin Braun,141254,Thomas,male,2015-10-21T00:00:00Z,2016-02-05T00:00:00Z,41.59716667,-69.44483333,38.5886,-54.8739,160424,modeled
+popup,267,total length,cm,adult,Camrin Braun,141256,Larry,male,2015-10-13T00:00:00Z,2016-02-24T00:00:00Z,41.575,-69.42263333,26.6798,-69.0147,160424,Argos
+popup,254,total length,cm,adult,Camrin Braun,141259,Johnny,male,2015-10-13T00:00:00Z,2016-04-10T00:00:00Z,41.32126667,-69.27583333,40.2514,-36.0612,160424,Argos
+popup,244,total length,cm,adult,Camrin Braun,106754,Cubswin,male,2016-10-18T00:00:00Z,2017-04-08T00:00:00Z,41.46666667,-69.33333333,21.235,-46.8302,160424,Argos
+popup,230,total length,cm,adult,Camrin Braun,133016,Bigelow,male,2016-08-25T00:00:00Z,2017-02-21T00:00:00Z,41.487,-69.326,42.6759,-54.594,160424,modeled
+popup,270,total length,cm,adult,Camrin Braun,133017,Vader,male,2016-08-28T00:00:00Z,2017-02-24T00:00:00Z,41.5205,-69.4275,39.9877,-56.1374,160424,Argos
+popup,254,total length,cm,adult,Camrin Braun,133018,Buzz,male,2016-09-10T00:00:00Z,2016-12-31T00:00:00Z,41.75,-69.83333333,11.1398,-54.963,160424,Argos
+popup,220.5,total length,cm,adult,Camrin Braun,133021,Warne,male,2016-08-28T00:00:00Z,2016-12-27T00:00:00Z,41.53533333,-69.4195,41.7365,-53.4836,160424,Argos
+popup,248,total length,cm,adult,Camrin Braun,141247,Machaca,male,2016-08-25T00:00:00Z,2016-10-01T00:00:00Z,41.487,-69.326,42.5346,-52.2537,160424,Argos
+popup,277,total length,cm,adult,Camrin Braun,141255,Don,male,2016-08-27T00:00:00Z,2017-02-23T00:00:00Z,41.40433333,-69.29866667,35.231,-73.867,160424,Argos
+popup,262,total length,cm,adult,Camrin Braun,141258,Ciona,male,2016-08-28T00:00:00Z,2017-02-24T00:00:00Z,41.53666667,-69.41883333,34.2385,-74.2845,160424,Argos
+popup,241,total length,cm,adult,Camrin Braun,154096,Sawtooth,male,2016-08-27T00:00:00Z,2016-09-12T00:00:00Z,41.09456667,-69.38033333,40.65,-66.993,160424,Argos
+popup,290,total length,cm,adult,Camrin Braun,163097,Triton,male,2016-10-18T00:00:00Z,2017-02-22T00:00:00Z,41.46666667,-69.33333333,35.772,-73.3432,160424,modeled
