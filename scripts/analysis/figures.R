@@ -484,9 +484,14 @@ ordered_dendro <-
   rotate(color.leafs$order)
 
 # for ALL clusters
-# ordered_dendro <-
-#   cluster_dendro %>% 
-#   rotate(color.leafs.all$order)
+# assign cluster labels to original dendrogram
+labels_colors(cluster_dendro) <- 
+  leaf.key$cluster
+
+# set dendrogram order 
+ordered_dendro_all <-
+  cluster_dendro %>%
+  rotate(color.leafs.all$order)
 
 # assign cluster labels to pruned dendrogram
 labels_colors(ordered_dendro) <- 
@@ -512,12 +517,12 @@ color_dendro <-
     col = c("#FFFF5CFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF")) 
 
 # for ALL cclusters
-color_dendro <- 
+color_dendro_all <- 
   color_branches(
-    ordered_dendro,
-    clusters = color.leafs.all$cluster,
-    col = c("#FFFF5CFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF",
-            'red', 'red', 'red', 'red', 'red', 'red', 'red' )) 
+    ordered_dendro_all,
+    clusters = labels_colors(ordered_dendro_all),
+    col = c("#FFFF5CFF", "#78CEA3FF", "#488E9EFF", 'red', 'red', "#404C8BFF", "#281A2CFF",
+            'red', 'red', 'red', 'red', 'red' )) 
 
 # create a pdf object for the dendrogram plot
 pdf(file = 'products/figures/figure3/color_dendrogram.pdf', width = 10, height = 7)
@@ -721,6 +726,7 @@ m.mod <-
     formula = clus2 ~ ssh +
       ssh_sd +
       lunar +
+      species +
       n2 +
       ssh:n2 +
       ssh:lunar +
@@ -836,7 +842,9 @@ opall <-
 
 # plot relationships for blues
 opall %>% 
-  filter(species == 'I.oxyrinchus') %>%
+  # filter(species == 'I.oxyrinchus') %>%
+  filter(species == 'P.glauca') %>%
+  filter(variable == 'DVM 1' | variable == 'DVM 4') %>%
   ggplot(aes(x = ssh,
              y = value,
              color = variable)) + 
@@ -852,18 +860,50 @@ opall %>%
   scale_y_continuous(expand = c(0,0.01)) +
   # use this code to generate the below colors (with some edits to yellow): show_col(cmocean(name = 'deep')(5))
   scale_color_manual(values = c("#78CEA3FF",
-                                "#FFFF5CFF",
-                                "#488E9EFF",
-                                "#404C8BFF",
+                                # "#FFFF5CFF",
+                                # "#488E9EFF",
+                                # "#404C8BFF",
                                 "#281A2CFF")) +
   scale_fill_manual(values = c("#78CEA3FF",
-                                "#FFFF5CFF",
-                                "#488E9EFF",
-                                "#404C8BFF",
+                                # "#FFFF5CFF",
+                                # "#488E9EFF",
+                                # "#404C8BFF",
                                 "#281A2CFF")) +
   facet_wrap(n2~lunar) + 
   labs(fill = "Cluster") +
   guides(color = 'none') +
+  ylab("Probability") +
+  theme_linedraw()
+
+# visualize the relationship
+
+p_lunar %>% 
+  # filter(species == 'P.glauca') %>%
+  # filter(species == 'I.oxyrinchus') %>%
+  filter(variable == 'DVM 1' | variable == 'DVM 3') %>%
+  ggplot(aes(x = lunar,
+             y = value,
+             color = variable)) + 
+  geom_pointrange(aes(x = lunar,
+                  ymin = LL,
+                  ymax = UL,
+                  color = variable),
+                  position = position_dodge(width = 0.5)) +
+  # scale_x_continuous(expand = c(0,0.01)) +
+  # scale_y_continuous(expand = c(0,0.01)) +
+  # use this code to generate the below colors (with some edits to yellow): show_col(cmocean(name = 'deep')(5))
+  scale_color_manual(values = c("#78CEA3FF",
+                                # "#FFFF5CFF",
+                                "#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF")) +
+  scale_fill_manual(values = c("#78CEA3FF",
+                               # "#FFFF5CFF",
+                               "#488E9EFF",
+                               "#404C8BFF",
+                               "#281A2CFF")) +
+  facet_wrap(~species) + 
+  labs(fill = "Cluster") +
   ylab("Probability") +
   theme_linedraw()
 

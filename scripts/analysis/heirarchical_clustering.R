@@ -53,6 +53,49 @@ clust_stamp2 <- high_res %>%
   dplyr::select(kode, species, cluster)
 
 
+# removing outlier clusters -----------------------------------------------
+
+high_res_prime_clusts <- high_res %>% filter(cluster <= 5)
+
+Tad_prime <- 
+  high_res_prime_clusts %>% 
+  dplyr::select(d.b1:n.sd)
+
+## Heirarchical Clustering
+
+# Step 1: make the clusters
+# create a distance matrix
+man.dist.prime <- dist(Tad_prime, method = "manhattan")
+# perform cluster assignment
+clusters.prime <- hclust(man.dist.prime, method = "average")
+
+# Step 2: partition the data into its rightful cluster
+cut.clusters.prime <- dendextend::cutree(clusters.prime,
+                                     k = 8,
+                                     order_clusters_as_data = TRUE)
+table(cut.clusters.prime)
+
+# testing most parsimonious cluster number ---
+## CH INDEX:
+NbClust(data = Tad_prime, diss = man.dist.prime, distance = NULL, min.nc = 2,
+        max.nc = 20, method = "average", index = "ch")
+# Raw: 2
+
+## DUDA TEST: Smallest number of clusters which produces a critical value greater than the Duda score
+NbClust(data = Tad_prime, diss = man.dist.prime, distance = NULL, min.nc = 2,
+        max.nc = 20, method = "average", index = "duda")
+# Raw: 8 clusters 
+
+## C INDEX
+NbClust(data = Tad_prime, diss = man.dist.prime, distance = NULL, min.nc = 2,
+        max.nc = 20, method = "average", index = "cindex")
+# Raw: 6 clusters 
+
+## BEALE INDEX
+NbClust(data = Tad_prime, diss = man.dist.prime, distance = NULL, min.nc = 2,
+        max.nc = 20, method = "average", index = "beale")
+# Raw: 8 clusters 
+
 # cluster summaries -------------------------------------------------------
 
 # how much time do sharks spend across depth bins within each cluster?
