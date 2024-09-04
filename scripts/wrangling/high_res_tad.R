@@ -104,13 +104,17 @@ high_res <- high_res %>% mutate(
 )
 
 # add depth over location of each tracking day to high-resolution
-high_res <- high_res %>% 
+high_res_all <- high_res %>% 
   left_join(bathy_stmp %>% 
               bind_rows(), by = "kode")
 
 
 # remove records which occur over <1000m
+shelf <- 
+  high_res_all %>% 
+  filter(bathy > -1000) # n = 142
+
 high_res <- 
-  high_res %>% 
+  high_res_all %>% 
   filter(bathy <= -1000) # n = 786
 

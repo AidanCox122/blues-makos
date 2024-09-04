@@ -46,3 +46,12 @@ table2 <-
   inner_join(series_coverage, by = 'TagID') %>% 
   mutate(ProportionSeries = Series/as.numeric(DaysAtLiberty)) %>% 
   dplyr::select(-c(Series))
+
+
+# Table 3 -----------------------------------------------------------------
+
+# This table will contain performance metrics for our multinom. logit models
+
+source('scripts/analysis/modeling.R')
+
+

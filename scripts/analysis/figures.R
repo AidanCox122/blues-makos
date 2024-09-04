@@ -389,7 +389,7 @@ ggsave(plot = sub.m,
        units = 'mm')
 # figure 3 ----------------------------------------------------------------
 
-source('scripts/analysis/heirarchical_clustering.R')
+source('scripts/analysis/hierarchical_clustering-MCA.R')
 
 # create the dendrogram object
 cluster_dendro <- 
@@ -419,26 +419,17 @@ leaf.key <- data.frame(
   cluster = leaf.clusters) %>% 
   mutate(clusterName = 
            case_when(
-             cluster == 1 ~ 'DVM 1',
-             cluster == 2 ~ 'Epipelagic',
-             cluster == 3 ~ 'DVM 2',
-             cluster == 4 ~ 'DVM 3',
-             cluster == 5 ~ 'DVM 5',
-             cluster >= 6 ~ as.character(cluster)),
+             cluster == 1 ~ 'EPI 2',
+             cluster == 2 ~ 'DVM 1',
+             cluster == 3 ~ 'EPI 1',
+             cluster == 4 ~ 'DVM 2',
+             cluster == 5 ~ 'DVM 3'),
          clusterName = factor(clusterName, 
-                          levels = c('Epipelagic',
+                          levels = c('EPI 1',
+                                     'EPI 2',
                                      'DVM 1',
                                      'DVM 2',
-                                     'DVM 3',
-                                     'DVM 4',
-                                     'DVM 5',
-                                     '6',
-                                     '7',
-                                     '8',
-                                     '9',
-                                     '10',
-                                     '11',
-                                     '12'),
+                                     'DVM 3'),
                           ordered = T)) 
 
 rm(leaf.species,
@@ -446,16 +437,6 @@ rm(leaf.species,
    leaf.clusters)
 
 # prune leaves from rare clusters
-
-# list the leaves which belong to rare clusters
-rare <- list(
-  six = c(113,696,737),
-  seven = c(117, 208, 118, 121, 122, 123, 116, 119),
-  eight = c(124),
-  nine = c(786, 557, 564, 184, 725, 615, 785, 236, 309, 442, 619),
-  ten = c(336),
-  eleven = c(413),
-  twelve = c(642))
 
 # create a key for all clusters
 color.leafs.all <- 
@@ -467,39 +448,18 @@ color.leafs.all <-
 # create a key for common clusters
 color.leafs <- 
   leaf.key %>%
-  filter(cluster <= 5) %>% 
   # order of the leaves on the pruned tree
-  mutate(order = seq(1:760)) %>% 
+  mutate(order = seq(1:786)) %>% 
   arrange(clusterName)
 
-# prune the leaves of rare clusters
-pruned_dendro <- 
-  cluster_dendro %>% 
-  prune(
-    (rare %>% unlist)) 
-  
-# reorder the leaves so clusters progress from shallowest to deepest
-ordered_dendro <-
-  pruned_dendro %>% 
-  rotate(color.leafs$order)
-
-# for ALL clusters
 # assign cluster labels to original dendrogram
 labels_colors(cluster_dendro) <- 
   leaf.key$cluster
-
-# set dendrogram order 
-ordered_dendro_all <-
-  cluster_dendro %>%
-  rotate(color.leafs.all$order)
-
-# assign cluster labels to pruned dendrogram
-labels_colors(ordered_dendro) <- 
-  color.leafs$cluster
-
-# # for ALL clusters
-# labels_colors(ordered_dendro) <- 
-#   color.leafs.all$cluster
+  
+# reorder the leaves so clusters progress from shallowest to deepest
+ordered_dendro <-
+  cluster_dendro %>% 
+  dendextend::rotate(color.leafs$order)
 
 # color the labels by cluster 
 labels_colors(ordered_dendro)
@@ -514,15 +474,11 @@ color_dendro <-
   color_branches(
     ordered_dendro,
     clusters = color.leafs$cluster,
-    col = c("#FFFF5CFF", "#78CEA3FF", "#488E9EFF", "#404C8BFF", "#281A2CFF")) 
-
-# for ALL cclusters
-color_dendro_all <- 
-  color_branches(
-    ordered_dendro_all,
-    clusters = labels_colors(ordered_dendro_all),
-    col = c("#FFFF5CFF", "#78CEA3FF", "#488E9EFF", 'red', 'red', "#404C8BFF", "#281A2CFF",
-            'red', 'red', 'red', 'red', 'red' )) 
+    col = c("yellow",
+            "yellow3",
+            "#488E9EFF",
+            "#404C8BFF",
+            "#281A2CFF")) 
 
 # create a pdf object for the dendrogram plot
 pdf(file = 'products/figures/figure3/color_dendrogram.pdf', width = 10, height = 7)
@@ -593,11 +549,11 @@ add_rows <- function(x) {
 }
   
 heatmap_tad <- 
-  c(1:12) %>% 
+  c(1:5) %>% 
   map(
     ~ add_rows(.)
   ) %>% 
-  set_names(paste('c', c(1:12), sep = ''))
+  set_names(paste('c', c(1:5), sep = ''))
 
 rm(tad_combo, mako.bin.depth, blue.bin.depth)
 
@@ -1106,33 +1062,32 @@ cluster_series %>%
   scale_y_reverse() +
   facet_grid(cluster ~ .)
 
-## when do clusters occur ----
+## Temporal Separation ----
 library(ggridges)
 
 high_res %>%
-  filter(cluster <= 5) %>% 
-  mutate(cluster = case_when(
-    cluster == 1 ~ 'DVM 1',
-    cluster == 2 ~ 'Epipelagic',
-    cluster == 3 ~ 'DVM 2',
-    cluster == 4 ~ 'DVM 3',
-    cluster == 5 ~ 'DVM 4'),
+  mutate(cluster = cluster = case_when(
+    cluster == 1 ~ 'EPI 2',
+    cluster == 2 ~ 'DVM 1',
+    cluster == 3 ~ 'EPI 1',
+    cluster == 4 ~ 'DVM 2',
+    cluster == 5 ~ 'DVM 3'),
     cluster = factor(cluster, levels = c(
-      'DVM 4',
-      'DVM 3',
-      'DVM 2',
+      'EPI 1',
+      'EPI 2',
       'DVM 1',
-      'Epipelagic'))) %>% 
+      'DVM 2',
+      'DVM 3'))) %>% 
   mutate(yday = lubridate::yday(Date)) %>%  # pull(yday) %>% summary()
   ggplot(aes(x = yday, y = cluster, fill = factor(cluster))) +
   geom_density_ridges(scale = 2.5, rel_min_height = 0.01, alpha = 0.65) +
   scale_x_continuous(limits = c(0, 366), expand = c(0,0)) +
   scale_y_discrete(expand = c(0,0)) +
-  scale_fill_manual(values = c("#281A2CFF",
-                               "#404C8BFF",
+  scale_fill_manual(values = c("yellow",
+                               "yellow3",
                                "#488E9EFF",
-                               "#78CEA3FF",
-                               "#FFFF5CFF"),
+                               "#404C8BFF",
+                               "#281A2CFF"),
                     name = 'Cluster') +
   labs(x = 'Day of the Year', y = 'Cluster') +
   theme_classic()
@@ -1140,7 +1095,6 @@ high_res %>%
 ## corrected yday boxplot
 
 high_res %>%
-  filter(cluster <= 5) %>% 
   rbind((high_res %>% 
            filter(cluster <= 5) %>% 
            mutate(cluster = 0))) %>% 
@@ -1216,7 +1170,6 @@ high_res %>%
 ## Cluster Location Map ----------------------------------------------------
 
 high_res %>% 
-  filter(cluster <= 5) %>% 
   group_by(cluster) %>% 
   summarize(lon.min = min(x),
             lon.max = max(x),
@@ -1225,42 +1178,42 @@ high_res %>%
             med.lon = median(x),
             med.lat = median(y)) %>% 
   mutate(cluster = case_when(
-    cluster == 1 ~ 'DVM 1',
-    cluster == 2 ~ 'Epipelagic',
-    cluster == 3 ~ 'DVM 2',
-    cluster == 4 ~ 'DVM 3',
-    cluster == 5 ~ 'DVM 4'),
+    cluster == 1 ~ 'EPI 2',
+    cluster == 2 ~ 'DVM 1',
+    cluster == 3 ~ 'EPI 1',
+    cluster == 4 ~ 'DVM 2',
+    cluster == 5 ~ 'DVM 3'),
     cluster = factor(cluster, levels = c(
       'DVM 1',
       'DVM 2',
       'DVM 3',
-      'DVM 4',
-      'Epipelagic'))) %>% 
+      'EPI 1',
+      'EPI 2'))) %>% 
   ggplot() +
   geom_sf(data = world) +
-  geom_rect(aes(xmin = lon.min,
-                xmax = lon.max,
-                ymin = lat.min,
-                ymax = lat.max,
-                fill = factor(cluster)),
-            alpha = 0.5) +
+  # geom_rect(aes(xmin = lon.min,
+  #               xmax = lon.max,
+  #               ymin = lat.min,
+  #               ymax = lat.max),
+  #           fill = NA,
+  #           color = 'black',
+  #           alpha = 0.5) +
   geom_point(data = (high_res %>% 
-               filter(cluster <= 5) %>% 
                mutate(cluster = case_when(
-                 cluster == 1 ~ 'DVM 1',
-                 cluster == 2 ~ 'Epipelagic',
-                 cluster == 3 ~ 'DVM 2',
-                 cluster == 4 ~ 'DVM 3',
-                 cluster == 5 ~ 'DVM 4'),
+                 cluster == 1 ~ 'EPI 2',
+                 cluster == 2 ~ 'DVM 1',
+                 cluster == 3 ~ 'EPI 1',
+                 cluster == 4 ~ 'DVM 2',
+                 cluster == 5 ~ 'DVM 3'),
                  cluster = factor(cluster, levels = c(
                    'DVM 1',
                    'DVM 2',
                    'DVM 3',
-                   'DVM 4',
-                   'Epipelagic')))),
-             aes(x = x, y = y),
-             color = 'grey22',
-             alpha = 0.6,
+                   'EPI 1',
+                   'EPI 2')))),
+             aes(x = x,
+                 y = y,
+                 color = species),
              shape = 20) +
   geom_hline(aes(yintercept = med.lat),
              linetype = 'dashed',
@@ -1268,23 +1221,121 @@ high_res %>%
   geom_vline(aes(xintercept = med.lon),
              linetype = 'dashed',
              alpha = 0.8) +
-  geom_point(aes(x = med.lon,
-                 y = med.lat),
-             color = 'red',
-             size = 3) +
-  scale_fill_manual(values = c("#78CEA3FF",
-                               "#488E9EFF",
-                               "#404C8BFF",
-                               "#281A2CFF",
-                               "#FFFF5CFF"),
-                    name = 'Cluster') +
-  scale_color_manual(values = c("#78CEA3FF",
-                               "#488E9EFF",
-                               "#404C8BFF",
-                               "#281A2CFF",
-                               "#FFFF5CFF"),
-                    name = 'Cluster') +
+  # geom_point(aes(x = med.lon,
+  #                y = med.lat),
+  #            color = 'red',
+  #            size = 3) +
+  # scale_fill_manual(values = c("yellow",
+  #                              "yellow3",
+  #                              "#488E9EFF",
+  #                              "#404C8BFF",
+  #                              "#281A2CFF"),
+  #                   name = 'Cluster') +
+  # scale_color_manual(values = c("yellow",
+  #                               "yellow3",
+  #                               "#488E9EFF",
+  #                               "#404C8BFF",
+  #                               "#281A2CFF"),
+  #                   name = 'Cluster') +
   coord_sf(xlim = c(-80, -35), ylim = c(9, 45)) +
   guides(color = 'none') +
   labs(x = 'Longitude', y = 'Latitude') +
-  facet_wrap(~cluster, nrow = 3)
+  facet_wrap(~cluster, nrow = 2)
+
+
+## Temperature Profiles ----------------------------------------------------
+# what was the range of depths targeted by sharks in each cluster
+depth_summary_stats <- 
+  combo_series %>%
+  # add cluster designations
+  left_join(clust_stamp2, by = 'kode') %>% 
+  # add correct cluster names
+  mutate(ogCluster = cluster,
+         cluster = case_when(
+           cluster == 1 ~ 'EPI 2',
+           cluster == 2 ~ 'DVM 1',
+           cluster == 3 ~ 'EPI 1',
+           cluster == 4 ~ 'DVM 2',
+           cluster == 5 ~ 'DVM 3'), 
+         cluster = factor(cluster,
+                          levels = c('EPI 1',
+                                     'EPI 2',
+                                     'DVM 1',
+                                     'DVM 2',
+                                     'DVM 3'),
+                          ordered = T)) %>% 
+  # select only daytime observations
+  filter(dn == 'd' & !is.na(cluster)) %>% 
+  # group the data by cluser
+  group_by(cluster) %>% 
+  summarize(
+    Quartile1 = quantile(depth, 0.25),
+    Median = median(depth, na.rm = T), 
+    Quartile3 = quantile(depth, 0.75))
+
+combo_series %>%
+  # add cluster designations
+  left_join(clust_stamp2, by = 'kode') %>% 
+  # remove NA observation w. no clusters
+  filter(!is.na(cluster)) %>% 
+  # add correct cluster names
+  mutate(ogCluster = cluster,
+         cluster = case_when(
+           cluster == 1 ~ 'EPI 2',
+           cluster == 2 ~ 'DVM 1',
+           cluster == 3 ~ 'EPI 1',
+           cluster == 4 ~ 'DVM 2',
+           cluster == 5 ~ 'DVM 3'), 
+         cluster = factor(cluster,
+                          levels = c('EPI 1',
+                                     'EPI 2',
+                                     'DVM 1',
+                                     'DVM 2',
+                                     'DVM 3'),
+                          ordered = T)) %>%  
+  # group the data
+  group_by(cluster, depth) %>% 
+  summarise(
+    temperature = mean(temperature, na.rm = T)) %>% #View()
+  # get temperature every 10m
+  filter(depth %in% seq(from = 0, to = 2000, by = 10)) %>% #View()
+  ggplot() +
+  geom_point(aes(x = temperature, y = depth, color = factor(cluster))) +
+  geom_rect(data = depth_summary_stats, aes(xmin = 0,
+                                            xmax = 27,
+                                            ymin = Quartile1,
+                                            ymax = Quartile3,
+                                            fill = factor(cluster)),
+            alpha = 0.5) +
+  # add a line for the first and third quartiles
+  geom_hline(data = depth_summary_stats,
+             aes(yintercept = Quartile1),
+             color = 'grey22',
+             linetype = 'dashed',
+             linewidth = 0.1) +
+  geom_hline(data = depth_summary_stats,
+             aes(yintercept = Quartile3),
+             color = 'grey22',
+             linetype = 'dashed',
+             linewidth = 0.1) +
+  # add a darker line for the median
+  geom_hline(data = depth_summary_stats,
+             aes(yintercept = Median),
+             color = 'grey1',
+             linetype = 'solid',
+             linewidth = 0.3) +
+  scale_color_manual(values = c("yellow",
+                                "yellow3",
+                                "#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF")) +
+  scale_fill_manual(values = c("yellow",
+                               "yellow3",
+                               "#488E9EFF",
+                               "#404C8BFF",
+                               "#281A2CFF")) +
+  facet_wrap(~cluster) +
+  labs(x = 'Temperature (ºC)', y = 'Depth (m)') +
+  scale_y_reverse() +
+  theme_linedraw()
+
