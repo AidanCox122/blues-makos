@@ -41,7 +41,8 @@ combo_series <- read_csv('data/clean/Series/combo_series.csv')
 all_series <- read_rds('data/clean/Series/all_sharks.rds')
 
 # read in high resolution time-at-depth summaries
-high_res <- read_csv('data/clean/high_resolution_summaries.csv')
+high_res <- read_csv('data/clean/high_resolution_summaries.csv') 
+  
 
 # figure 1 ----------------------------------------------------------------
 r <- raster::raster('data/raw/global_bathy_0.01.nc')
@@ -1169,6 +1170,44 @@ high_res %>%
 
 ## Cluster Location Map ----------------------------------------------------
 
+clust_map <- 
+  high_res %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'EPI 2',
+    cluster == 2 ~ 'DVM 1',
+    cluster == 3 ~ 'EPI 1',
+    cluster == 4 ~ 'DVM 2',
+    cluster == 5 ~ 'DVM 3'),
+    cluster = factor(cluster, levels = c(
+      'DVM 1',
+      'DVM 2',
+      'DVM 3',
+      'EPI 1',
+      'EPI 2')))
+
+ggplot() +
+  geom_sf(data = world) +
+  geom_contour(data = r_df,
+               aes(x = x,
+                   y = y,
+                   z = z),
+               color = "black",
+               alpha = 0.5,
+               breaks = c(-1000)) +
+  geom_point(data = clust_map %>% dplyr::select(-c(cluster)), 
+             aes(x = x,
+                 y = y), color = 'grey70', alpha = 0.5, shape = 20) +
+  geom_point(data = clust_map, 
+             aes(x = x,
+                 y = y,
+                 color = species),
+             shape = 20) +
+  coord_sf(xlim = c(-80, -35), ylim = c(9, 45)) +
+  # guides(color = 'none') +
+  labs(x = 'Longitude', y = 'Latitude') +
+  facet_wrap(~cluster, nrow = 2) + 
+  theme_minimal()
+
 high_res %>% 
   group_by(cluster) %>% 
   summarize(lon.min = min(x),
@@ -1198,19 +1237,7 @@ high_res %>%
   #           fill = NA,
   #           color = 'black',
   #           alpha = 0.5) +
-  geom_point(data = (high_res %>% 
-               mutate(cluster = case_when(
-                 cluster == 1 ~ 'EPI 2',
-                 cluster == 2 ~ 'DVM 1',
-                 cluster == 3 ~ 'EPI 1',
-                 cluster == 4 ~ 'DVM 2',
-                 cluster == 5 ~ 'DVM 3'),
-                 cluster = factor(cluster, levels = c(
-                   'DVM 1',
-                   'DVM 2',
-                   'DVM 3',
-                   'EPI 1',
-                   'EPI 2')))),
+  geom_point(data = clust_map,
              aes(x = x,
                  y = y,
                  color = species),
@@ -1221,22 +1248,6 @@ high_res %>%
   geom_vline(aes(xintercept = med.lon),
              linetype = 'dashed',
              alpha = 0.8) +
-  # geom_point(aes(x = med.lon,
-  #                y = med.lat),
-  #            color = 'red',
-  #            size = 3) +
-  # scale_fill_manual(values = c("yellow",
-  #                              "yellow3",
-  #                              "#488E9EFF",
-  #                              "#404C8BFF",
-  #                              "#281A2CFF"),
-  #                   name = 'Cluster') +
-  # scale_color_manual(values = c("yellow",
-  #                               "yellow3",
-  #                               "#488E9EFF",
-  #                               "#404C8BFF",
-  #                               "#281A2CFF"),
-  #                   name = 'Cluster') +
   coord_sf(xlim = c(-80, -35), ylim = c(9, 45)) +
   guides(color = 'none') +
   labs(x = 'Longitude', y = 'Latitude') +
