@@ -178,7 +178,9 @@ high_res %>%
     # 'night_mean_epi' = mean(night_epi),
     # 'night_sd_epi' = sd(night_epi),
     'night_mean_meso' = mean(night_meso),
-    'night_sd_meso' = sd(night_meso)) %>% View()
+    'night_sd_meso' = sd(night_meso),
+    'overall_mean_meso' = mean(c(day_meso, night_meso)),
+    'overall_sd_meso' = sd(c(day_meso, night_meso))) %>% View()
     
 ## exact average depth targeted ----
 
@@ -457,7 +459,7 @@ high_res %>%
     # SD.Lat = sd(latitude),
     Q3.Lat = quantile(latitude, 0.95),
     Q1.Lon. = quantile(longitude, 0.05),
-    # Avg.Long = mean(longitude),
+    Avg.Long = mean(longitude),
     # SD.Long = sd(longitude)
     Q3.Lon = quantile(longitude, 0.90)
     )
