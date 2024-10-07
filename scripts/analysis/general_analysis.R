@@ -13,7 +13,7 @@ combo_track <- read_csv('data/clean/Tracks/combo_track.csv')
 
 bathy_stmp <- read_rds('data/raw/bathymetry.rds')
 
-high_res <- read_csv('data/clean/high_resolution_summaries.csv')
+source('scripts/analysis/hierarchical_clustering-MCA.R')
 
 #define standard error of mean function
 std.error <- function(x) sd(x)/sqrt(length(x))
@@ -38,7 +38,32 @@ complete_series_0.5 <-
   filter(n >= 288) %>% # there are 1249 tracking days with more than 50% of their series data
   right_join(combo_series, by = c("Date", "ptt")) %>% 
   filter(!is.na(n)) %>% 
-  ungroup()
+  ungroup() %>% 
+  # add latitude and longitude data
+  left_join(
+    combo_track %>% 
+      group_by(kode) %>% 
+      filter(DateTime == min(DateTime)),
+    by = 'kode') %>% 
+  # add cluster 
+  left_join(
+    clust_stamp2,
+    by = 'kode') %>% 
+  # convert cluster to a factor
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'EPI 2',
+    cluster == 2 ~ 'DVM 1',
+    cluster == 3 ~ 'EPI 1',
+    cluster == 4 ~ 'DVM 2',
+    cluster == 5 ~ 'DVM 3'),
+    cluster = factor(cluster, levels = c(
+      'DVM 1',
+      'DVM 2',
+      'DVM 3',
+      'EPI 1',
+      'EPI 2'))) %>% 
+  # remove any observations without clusters
+  filter(!is.na(cluster)) #85633 observations removed
 
 ## average maximum depth by species----
 complete_series_0.5 %>%
@@ -49,18 +74,56 @@ complete_series_0.5 %>%
   group_by(species) %>%
   summarize(all_max = max(all_max), grandMean = mean(mean), StErr = std.error(mean))
 
+## differences in median daytime depth ----
+
+oneW_depth_aov <- aov(med.depth ~ species,
+               data = complete_series_0.5 %>% 
+                 group_by(species, cluster, kode) %>%
+                 summarize(med.depth = median(depth)))
+
+summary(oneW_depth_aov)
+
+one.way.depth <- TukeyHSD(oneW_depth_aov)
+
+# difference in daytime depth between species by cluster
+twoW_depth_aov <- aov(med.depth ~ species + cluster,
+                 data = complete_series_0.5 %>% 
+                   group_by(species, cluster, kode) %>%
+                   summarize(med.depth = median(depth)))
+
+summary(twoW_depth_aov)
+
+depth.tukey <- TukeyHSD(twoWdepth_aov)
+
+
+## Differences in standard deviation of depth use --------------------------
+
+oneW_dSD_aov <- aov(sd.depth ~ species,
+                      data = complete_series_0.5 %>% 
+                        group_by(species, cluster, kode, dn) %>%
+                        summarize(sd.depth = sd(depth)) %>% 
+                      # select only daytime values
+                      filter(dn == 'd'))
+
+summary(oneW_dSD_aov)
+
+one.way.dSD <- TukeyHSD(oneW_dSD_aov)
+
 ## location distribution----
 # where do most of the track locations fall?
 # what is the range of locations in each direction?
-complete_series_0.5 %>% 
-  left_join(
-    combo_track %>% 
-      group_by(kode) %>% 
-      filter(DateTime == min(DateTime)),
-    by = 'kode'
-  ) %>% 
+complete_series_0.5 %>%
   dplyr::select(latitude, longitude) %>% 
   summary()
+
+lat_aov <- aov(latitude ~ cluster,
+                 data = complete_series_0.5 %>% 
+                 group_by(species, cluster, kode) %>%
+                 summarize(latitude = mean(latitude)))
+
+summary(lat_aov)
+
+lat.tukey <- TukeyHSD(lat_aov)
 
 ## temperature distribution ----
 complete_series_0.5 %>%
@@ -161,3 +224,8 @@ complete_series_0.5 %>%
     sd.b6 = sd(b6),
     sd.b7 = sd(b7),
     sd.b8 = sd(b8)) # %>% View
+
+
+## Differences in bathymetry -----------------------------------------------
+
+
