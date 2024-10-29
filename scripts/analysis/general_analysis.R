@@ -1,7 +1,15 @@
 
+# notes -------------------------------------------------------------------
+
+# for instructions on running an ANOVA test in R, see: https://statsandr.com/blog/anova-in-r/
+
 # setup -------------------------------------------------------------------
 library(tidyverse)
 library(tags2etuff)
+library(multcomp)
+library(sf)
+library(ggpubr)
+library(rstatix) # for ANOVA functions
 
 fList <- list.files("data/raw/etuff", full.names = T)
 blues <- fList[grep('160424', fList)]
@@ -74,7 +82,21 @@ complete_series_0.5 %>%
   group_by(species) %>%
   summarize(all_max = max(all_max), grandMean = mean(mean), StErr = std.error(mean))
 
-## differences in median daytime depth ----
+## Differences in median daytime depth ----
+
+# identify extreme outliers
+complete_series_0.5 %>% 
+  group_by(species, cluster, kode) %>%
+  summarize(med.depth = median(depth)) %>% 
+  group_by(species) %>% 
+  identify_outliers(med.depth) # there are nine extreme outliers
+
+# test homoscedasticity
+complete_series_0.5 %>% 
+  group_by(species, cluster, kode) %>%
+  summarize(med.depth = median(depth)) %>% 
+  ungroup() %>% 
+  leveneTest(med.depth~species, data = .) # p > 0.05            
 
 oneW_depth_aov <- aov(med.depth ~ species,
                data = complete_series_0.5 %>% 
@@ -98,6 +120,27 @@ depth.tukey <- TukeyHSD(twoWdepth_aov)
 
 ## Differences in standard deviation of depth use --------------------------
 
+# identify any extreme outliers
+complete_series_0.5 %>% 
+  # recreate d.sd from time-series data
+  group_by(species, cluster, kode, dn) %>%
+  summarize(sd.depth = sd(depth)) %>% 
+  ungroup() %>% 
+  # select only daytime values
+  filter(dn == 'd') %>% 
+  group_by(species) %>% 
+  identify_outliers(sd.depth) # there are no extreme outliers
+
+# test for homoscedasticity
+complete_series_0.5 %>% 
+  # recreate d.sd from time-series data
+  group_by(species, cluster, kode, dn) %>%
+  summarize(sd.depth = sd(depth)) %>% 
+  ungroup() %>% 
+  # select only daytime values
+  filter(dn == 'd') %>%
+  leveneTest(sd.depth~species, data = .) # p < 0.005 so variance equal
+
 oneW_dSD_aov <- aov(sd.depth ~ species,
                       data = complete_series_0.5 %>% 
                         group_by(species, cluster, kode, dn) %>%
@@ -109,12 +152,23 @@ summary(oneW_dSD_aov)
 
 one.way.dSD <- TukeyHSD(oneW_dSD_aov)
 
-## location distribution----
+## Difference in latitude distribution----
 # where do most of the track locations fall?
 # what is the range of locations in each direction?
 complete_series_0.5 %>%
   dplyr::select(latitude, longitude) %>% 
   summary()
+
+# identify any extreme outliers
+complete_series_0.5 %>% 
+  dplyr::select(species, kode, latitude, cluster) %>% 
+  group_by(cluster) %>% 
+  identify_outliers(latitude) %>% View()
+
+# test for homoscedasticity
+complete_series_0.5 %>% 
+  dplyr::select(species, kode, latitude, cluster) %>% 
+  leveneTest(latitude~species, data = .) # p < 0.001 there is unequal variance between species
 
 lat_aov <- aov(latitude ~ cluster,
                  data = complete_series_0.5 %>% 
@@ -124,6 +178,149 @@ lat_aov <- aov(latitude ~ cluster,
 summary(lat_aov)
 
 lat.tukey <- TukeyHSD(lat_aov)
+
+
+## difference in distance from shelf by cluster ----------------------------
+
+# create a crs object for WGS84 Azimuth Equidistant projection
+my_crs <- 
+st_crs('PROJCRS["World_Azimuthal_Equidistant",
+    BASEGEOGCRS["WGS 84",
+        DATUM["World Geodetic System 1984",
+            ELLIPSOID["WGS 84",6378137,298.257223563,
+                LENGTHUNIT["metre",1]]],
+        PRIMEM["Greenwich",0,
+            ANGLEUNIT["Degree",0.0174532925199433]]],
+    CONVERSION["World_Azimuthal_Equidistant",
+        METHOD["Modified Azimuthal Equidistant",
+            ID["EPSG",9832]],
+        PARAMETER["Latitude of natural origin",0,
+            ANGLEUNIT["Degree",0.0174532925199433],
+            ID["EPSG",8801]],
+        PARAMETER["Longitude of natural origin",0,
+            ANGLEUNIT["Degree",0.0174532925199433],
+            ID["EPSG",8802]],
+        PARAMETER["False easting",0,
+            LENGTHUNIT["metre",1],
+            ID["EPSG",8806]],
+        PARAMETER["False northing",0,
+            LENGTHUNIT["metre",1],
+            ID["EPSG",8807]]],
+    CS[Cartesian,2],
+        AXIS["(E)",east,
+            ORDER[1],
+            LENGTHUNIT["metre",1]],
+        AXIS["(N)",north,
+            ORDER[2],
+            LENGTHUNIT["metre",1]],
+    USAGE[
+        SCOPE["Not known."],
+        AREA["World."],
+        BBOX[-90,-180,90,180]],
+    ID["ESRI",54032]]')
+# read in WGS84 shapefiles and reproject to NAD83 Azimuth equidistant
+## isobath 
+isobath1000 <-
+  st_read('/Users/aidansmacpro/Documents/GIS/blues-makos/isobath1000.shp')
+
+projected_isobath1000 <- 
+  isobath1000 %>% 
+  st_transform(crs = my_crs) #26919 (NAD83 UTM Z19N does not cover full extent of study area)
+
+st_write(projected_isobath1000, '/Users/aidansmacpro/Documents/GIS/blues-makos/projected_isobath1000.shp')
+
+## cluster locations
+cluster_locs <- 
+  read_csv('/Users/aidansmacpro/Desktop/blues-makos/data/processed/clustered_high_res_tad.csv') %>%
+  dplyr::select("ptt",       "Date",      "species",   "kode",      "bathy",    
+                "latitude",  "longitude",  "cluster") %>% 
+  mutate(distance = NA)
+
+## convert locs to SF object
+locs_sf <- st_as_sf(cluster_locs,coords = c("longitude","latitude"),
+                    # points were colleted using WGS84
+                    crs =4326)  
+
+projected_cluster_locs <- 
+  locs_sf %>% 
+  st_transform(crs = my_crs)
+
+# st_write(projected_cluster_locs, '/Users/aidansmacpro/Documents/GIS/blues-makos/projected_cluster_locs.shp')
+
+# load distance from 1000m isobath for each cluster obs.
+
+dist_1000 <- 
+  # unprojected
+  # read_csv('/Users/aidansmacpro/Desktop/blues-makos/data/processed/distance_to_1000.csv') %>% 
+  # projected
+  read_csv('/Users/aidansmacpro/Desktop/blues-makos/data/processed/projected_dist_to_1000.csv') %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'EPI 2',
+    cluster == 2 ~ 'DVM 1',
+    cluster == 3 ~ 'EPI 1',
+    cluster == 4 ~ 'DVM 2',
+    cluster == 5 ~ 'DVM 3'),
+    cluster = factor(cluster, levels = c(
+      'EPI 1', 
+      'EPI 2', 
+      'DVM 1', 
+      'DVM 2',
+      'DVM 3'),
+      ordered = T))
+
+# load distance from shelf for each cluster obs.
+dist_shelf <- 
+  # unprojected
+  # read_csv('/Users/aidansmacpro/Desktop/blues-makos/data/processed/distance_to_shelf.csv') %>% 
+  # projected
+  read_csv('/Users/aidansmacpro/Desktop/blues-makos/data/processed/projected_dist_to_shelf.csv') %>%
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'EPI 2',
+    cluster == 2 ~ 'DVM 1',
+    cluster == 3 ~ 'EPI 1',
+    cluster == 4 ~ 'DVM 2',
+    cluster == 5 ~ 'DVM 3'),
+    cluster = factor(cluster, levels = c(
+      'EPI 1', 
+      'EPI 2', 
+      'DVM 1', 
+      'DVM 2',
+      'DVM 3'),
+      ordered = T))
+
+# test for difference in distance to 1000m isobath by clusters
+aov_1000 <- aov(distance ~ cluster,
+                    data = dist_1000)
+
+summary(aov_1000) # p < 0.001
+
+tukey.1000 <- glht(aov_1000, linfct = mcp(cluster = "Tukey"))
+
+summary(tukey.1000)
+
+# test for difference in distance to shelf by cluster
+aov_shelf <- aov(distance ~ cluster,
+                data = dist_shelf)
+
+summary(aov_shelf) # p < 0.001
+
+tukey.shelf <- glht(aov_shelf, linfct = mcp(cluster = "Tukey"))
+
+summary(tukey.shelf) # All clusters p < 0.001 except EPI2 - DVM 1
+
+# visualize the differences
+ggplot() +
+  # closest to farthest order of distance to 1000: DVM1, EPI2, EPI1, DVM3, DVM2
+  geom_boxplot(data = dist_1000, aes(x = cluster, y = distance, fill = cluster)) +
+  # same pattern but more exaggerated 
+  # geom_boxplot(data = dist_shelf, aes(x = cluster, y = distance, fill = cluster)) +
+  scale_color_manual(values = c("yellow",
+                                "yellow3",
+                                "#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF")) +
+  coord_flip() +
+  theme_minimal()
 
 ## temperature distribution ----
 complete_series_0.5 %>%
