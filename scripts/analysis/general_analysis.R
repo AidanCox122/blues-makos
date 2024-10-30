@@ -2,6 +2,10 @@
 # notes -------------------------------------------------------------------
 
 # for instructions on running an ANOVA test in R, see: https://statsandr.com/blog/anova-in-r/
+# instructions on repeated measure ANOVA IN R: https://www.datanovia.com/en/lessons/repeated-measures-anova-in-r/#google_vignette
+# instructions on kruskal-walis test in R: https://www.datanovia.com/en/lessons/kruskal-wallis-test-in-r/#google_vignette
+# instructions on friedman test in R: https://www.datanovia.com/en/lessons/friedman-test-in-r/
+# instructions on welch's t-test in R: https://whitlockschluter3e.zoology.ubc.ca/RLabs/R_tutorial_Comparing_means_of_2_groups.html#welch’s_t-test
 
 # setup -------------------------------------------------------------------
 library(tidyverse)
@@ -10,6 +14,7 @@ library(multcomp)
 library(sf)
 library(ggpubr)
 library(rstatix) # for ANOVA functions
+# library(car) # leveneTest
 
 fList <- list.files("data/raw/etuff", full.names = T)
 blues <- fList[grep('160424', fList)]
@@ -86,36 +91,51 @@ complete_series_0.5 %>%
 
 # identify extreme outliers
 complete_series_0.5 %>% 
-  group_by(species, cluster, kode) %>%
+  group_by(cluster, kode, dn) %>%
   summarize(med.depth = median(depth)) %>% 
-  group_by(species) %>% 
+  ungroup() %>% 
+  filter(dn == 'd') %>% 
   identify_outliers(med.depth) # there are nine extreme outliers
 
 # test homoscedasticity
 complete_series_0.5 %>% 
-  group_by(species, cluster, kode) %>%
+  group_by(cluster, kode, dn) %>%
   summarize(med.depth = median(depth)) %>% 
   ungroup() %>% 
-  leveneTest(med.depth~species, data = .) # p > 0.05            
+  filter(dn == 'd') %>% 
+  car::leveneTest(med.depth~cluster, data = .) # p > 0.05            
 
-oneW_depth_aov <- aov(med.depth ~ species,
-               data = complete_series_0.5 %>% 
-                 group_by(species, cluster, kode) %>%
-                 summarize(med.depth = median(depth)))
+
+oneW_depth_aov <- 
+  complete_series_0.5 %>% 
+  group_by(cluster, kode, dn) %>%
+  summarize(med.depth = median(depth)) %>% 
+  ungroup() %>% 
+  filter(dn == 'd') %>%
+  aov(med.depth ~ cluster,
+      data = .)
 
 summary(oneW_depth_aov)
 
 one.way.depth <- TukeyHSD(oneW_depth_aov)
 
-# difference in daytime depth between species by cluster
-twoW_depth_aov <- aov(med.depth ~ species + cluster,
-                 data = complete_series_0.5 %>% 
-                   group_by(species, cluster, kode) %>%
-                   summarize(med.depth = median(depth)))
+# run the non-parametric alternative
+complete_series_0.5 %>% 
+  group_by(cluster, kode, dn) %>%
+  summarize(med.depth = median(depth)) %>% 
+  ungroup() %>% 
+  filter(dn == 'd') %>% 
+  rstatix::kruskal_test(med.depth ~ cluster,
+                        data = .) # there is a significant difference
 
-summary(twoW_depth_aov)
+# difference in daytime median depth between species 
 
-depth.tukey <- TukeyHSD(twoWdepth_aov)
+complete_series_0.5 %>% 
+  group_by(species, kode, dn) %>%
+  summarize(med.depth = median(depth)) %>% 
+  ungroup() %>% 
+  filter(dn == 'd') %>% 
+  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.65
 
 
 ## Differences in standard deviation of depth use --------------------------
@@ -141,16 +161,15 @@ complete_series_0.5 %>%
   filter(dn == 'd') %>%
   leveneTest(sd.depth~species, data = .) # p < 0.005 so variance equal
 
-oneW_dSD_aov <- aov(sd.depth ~ species,
-                      data = complete_series_0.5 %>% 
-                        group_by(species, cluster, kode, dn) %>%
-                        summarize(sd.depth = sd(depth)) %>% 
-                      # select only daytime values
-                      filter(dn == 'd'))
+complete_series_0.5 %>% 
+  # recreate d.sd from time-series data
+  group_by(species, kode, dn) %>%
+  summarize(sd.depth = sd(depth)) %>% 
+  ungroup() %>% 
+  # select only daytime values
+  filter(dn == 'd') %>% 
+  t.test(sd.depth ~ species, data = ., var.equal = FALSE) # p = 0.05579
 
-summary(oneW_dSD_aov)
-
-one.way.dSD <- TukeyHSD(oneW_dSD_aov)
 
 ## Difference in latitude distribution----
 # where do most of the track locations fall?
@@ -180,7 +199,7 @@ summary(lat_aov)
 lat.tukey <- TukeyHSD(lat_aov)
 
 
-## difference in distance from shelf by cluster ----------------------------
+## Difference in distance from shelf by cluster ----------------------------
 
 # create a crs object for WGS84 Azimuth Equidistant projection
 my_crs <- 
@@ -227,7 +246,7 @@ projected_isobath1000 <-
   isobath1000 %>% 
   st_transform(crs = my_crs) #26919 (NAD83 UTM Z19N does not cover full extent of study area)
 
-st_write(projected_isobath1000, '/Users/aidansmacpro/Documents/GIS/blues-makos/projected_isobath1000.shp')
+# st_write(projected_isobath1000, '/Users/aidansmacpro/Documents/GIS/blues-makos/projected_isobath1000.shp')
 
 ## cluster locations
 cluster_locs <- 
@@ -294,6 +313,22 @@ aov_1000 <- aov(distance ~ cluster,
 
 summary(aov_1000) # p < 0.001
 
+# test if data met anova assumptions
+## equal variance
+dist_1000 %>% 
+  car::leveneTest(distance~cluster, data = .) # p < 0.001, unequal var.
+
+## normal distribution of variance
+car::qqPlot(aov_1000$residuals,
+            id = FALSE # id = FALSE to remove point identification
+) # our data seem to have a right skew towards farther distances
+
+## no extreme outliers
+dist_1000 %>% 
+  group_by(cluster) %>% 
+  identify_outliers(distance) %>% View()
+
+# post hoc tests
 tukey.1000 <- glht(aov_1000, linfct = mcp(cluster = "Tukey"))
 
 summary(tukey.1000)
@@ -303,6 +338,26 @@ aov_shelf <- aov(distance ~ cluster,
                 data = dist_shelf)
 
 summary(aov_shelf) # p < 0.001
+
+# test if data met anova assumptions
+## equal variance
+dist_shelf %>% 
+  car::leveneTest(distance~cluster, data = .) # p < 0.001, unequal var.
+
+## normal distribution of variance
+car::qqPlot(aov_shelf$residuals,
+            id = FALSE # id = FALSE to remove point identification
+) # our data seem to have a right skew towards farther distances
+
+## no extreme outliers
+dist_shelf %>% 
+  group_by(cluster) %>% 
+  identify_outliers(distance) %>% View()
+
+# post hoc tests
+tukey.1000 <- glht(aov_1000, linfct = mcp(cluster = "Tukey"))
+
+summary(tukey.1000)
 
 tukey.shelf <- glht(aov_shelf, linfct = mcp(cluster = "Tukey"))
 
