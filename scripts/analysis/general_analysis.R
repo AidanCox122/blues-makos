@@ -196,6 +196,14 @@ lat_aov <- aov(latitude ~ cluster,
 
 summary(lat_aov)
 
+# non-parametric version
+complete_series_0.5 %>% 
+  group_by(cluster, kode) %>%
+  summarize(latitude = mean(latitude)) %>% 
+  ungroup() %>% 
+  rstatix::kruskal_test(latitude ~ cluster,
+                        data = .) # there is a highly signif. difference btwn. clusters
+
 lat.tukey <- TukeyHSD(lat_aov)
 
 
@@ -328,6 +336,14 @@ dist_1000 %>%
   group_by(cluster) %>% 
   identify_outliers(distance) %>% View()
 
+# non-parametric version
+kw.1000 <- 
+  dist_1000 %>% 
+  rstatix::kruskal_test(distance ~ cluster,
+                        data = .) # there is a highly signif. difference btwn. clusters
+
+summary(kw.1000)
+
 # post hoc tests
 tukey.1000 <- glht(aov_1000, linfct = mcp(cluster = "Tukey"))
 
@@ -353,6 +369,13 @@ car::qqPlot(aov_shelf$residuals,
 dist_shelf %>% 
   group_by(cluster) %>% 
   identify_outliers(distance) %>% View()
+
+# non-parametric version
+dist_shelf %>% 
+  rstatix::kruskal_test(distance ~ cluster,
+                        data = .) # there is a highly signif. difference btwn. clusters
+
+summary(kw.1000)
 
 # post hoc tests
 tukey.1000 <- glht(aov_1000, linfct = mcp(cluster = "Tukey"))
@@ -387,6 +410,84 @@ complete_series_0.5 %>%
   filter(!is.na(temperature) & species == "P.glauca") %>%
   pull(temperature) %>%
   summary()
+
+
+# Difference in Temperature @ Median/Q3 Depth --------------------------------
+# find temperature at MEDIAN
+temp_at_median <- 
+  complete_series_0.5 %>%
+  dplyr::select(species, cluster, kode, dn, depth, temperature, latitude, longitude) %>% 
+  filter(!is.na(temperature) & dn == 'd') %>% 
+  left_join(
+    # find the median depth for each species on each day
+    complete_series_0.5 %>% 
+      group_by(cluster, kode, dn) %>%
+      summarize(med.depth = median(depth)) %>% 
+      ungroup() %>% 
+      filter(dn == 'd'),
+    by = 'kode') %>% 
+  # identify median depth
+  filter(depth == med.depth) %>%  # 443 unique kodes
+  # there are 14,000 entries because sharks may have visited median depth as many as 256 times
+  group_by(kode, cluster.x) %>% 
+  summarize(mean.temp = mean(temperature)) %>% 
+  ungroup()
+
+# test assumptions
+## equal variance
+temp_at_median %>% 
+  car::leveneTest(mean.temp~cluster.x, data = .) # p < 0.001, unequal var.
+
+## no extreme outliers
+temp_at_median %>%
+  group_by(cluster.x) %>% 
+  identify_outliers(mean.temp) # no extreme outliers
+
+temp_at_median %>%
+  kruskal_test(mean.temp ~ cluster.x, data = .) # p < 0.001
+
+temp_at_median %>% 
+  ggplot() +
+  geom_boxplot(aes(x = cluster.x, y = mean.temp, color = cluster.x)) +
+  scale_color_manual(values = c("#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF",
+                                "yellow",
+                                "yellow3")) +
+  theme_classic()
+
+## Find temperature at Q3
+temp_at_Q3 <- 
+  complete_series_0.5 %>%
+  dplyr::select(species, cluster, kode, dn, depth, temperature, latitude, longitude) %>% 
+  filter(!is.na(temperature) & dn == 'd') %>% 
+  left_join(
+    # find the median depth for each species on each day
+    complete_series_0.5 %>% 
+      group_by(cluster, kode, dn) %>%
+      summarize(q3.depth = quantile(depth, 0.75)) %>% 
+      ungroup() %>% 
+      filter(dn == 'd'),
+    by = 'kode') %>% 
+  # identify median depth
+  filter(depth == q3.depth) %>%  # 443 unique kodes
+  # there are 9,972 entries because sharks may have visited median depth as many as 256 times
+  group_by(kode, cluster.x) %>% 
+  summarize(mean.temp = mean(temperature)) %>% 
+  ungroup()
+
+temp_at_Q3 %>%
+  kruskal_test(mean.temp ~ cluster.x, data = .) # p < 0.001
+
+temp_at_Q3 %>% 
+  ggplot() +
+  geom_boxplot(aes(x = cluster.x, y = mean.temp, color = cluster.x)) +
+  scale_color_manual(values = c("#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF",
+                                "yellow",
+                                "yellow3")) +
+  theme_classic()
 
 ## diel patterns ----
 
