@@ -212,6 +212,19 @@ dunn.lat <-
   ungroup() %>% 
   dunn_test(latitude ~ cluster, p.adjust.method = "bonferroni")
 
+complete_series_0.5 %>% 
+  group_by(cluster, kode) %>%
+  summarize(latitude = mean(latitude)) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_boxplot(aes(x = cluster, y = latitude, fill = cluster)) +
+  scale_fill_manual(values = c("#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF",
+                               "yellow",
+                               "yellow3")) +
+  theme_classic()
+
 
 ## Difference in distance from shelf by cluster ----------------------------
 
@@ -399,7 +412,7 @@ ggplot() +
   geom_boxplot(data = dist_1000, aes(x = cluster, y = distance, fill = cluster)) +
   # same pattern but more exaggerated 
   # geom_boxplot(data = dist_shelf, aes(x = cluster, y = distance, fill = cluster)) +
-  scale_color_manual(values = c("yellow",
+  scale_fill_manual(values = c("yellow",
                                 "yellow3",
                                 "#488E9EFF",
                                 "#404C8BFF",
