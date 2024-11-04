@@ -204,7 +204,13 @@ complete_series_0.5 %>%
   rstatix::kruskal_test(latitude ~ cluster,
                         data = .) # there is a highly signif. difference btwn. clusters
 
-lat.tukey <- TukeyHSD(lat_aov)
+# Add a post-hoc pairwise Dunn test
+dunn.lat <- 
+  complete_series_0.5 %>% 
+  group_by(cluster, kode) %>%
+  summarize(latitude = mean(latitude)) %>% 
+  ungroup() %>% 
+  dunn_test(latitude ~ cluster, p.adjust.method = "bonferroni")
 
 
 ## Difference in distance from shelf by cluster ----------------------------
@@ -344,6 +350,11 @@ kw.1000 <-
 
 summary(kw.1000)
 
+dunn.1000 <- 
+  dist_1000 %>% 
+  dunn_test(distance ~ cluster, p.adjust.method = "bonferroni")
+
+
 # post hoc tests
 tukey.1000 <- glht(aov_1000, linfct = mcp(cluster = "Tukey"))
 
@@ -378,13 +389,9 @@ dist_shelf %>%
 summary(kw.1000)
 
 # post hoc tests
-tukey.1000 <- glht(aov_1000, linfct = mcp(cluster = "Tukey"))
-
-summary(tukey.1000)
-
-tukey.shelf <- glht(aov_shelf, linfct = mcp(cluster = "Tukey"))
-
-summary(tukey.shelf) # All clusters p < 0.001 except EPI2 - DVM 1
+dunn.shelf <- 
+  dist_shelf %>% 
+  dunn_test(distance ~ cluster, p.adjust.method = "bonferroni")
 
 # visualize the differences
 ggplot() +
@@ -400,7 +407,7 @@ ggplot() +
   coord_flip() +
   theme_minimal()
 
-## temperature distribution ----
+# Temperature distribution ----
 complete_series_0.5 %>%
   filter(!is.na(temperature) & species == "I.oxyrinchus") %>%
   pull(temperature) %>%
@@ -412,7 +419,7 @@ complete_series_0.5 %>%
   summary()
 
 
-# Difference in Temperature @ Median/Q3 Depth --------------------------------
+## Difference in Temperature @ Median/Q3 Depth --------------------------------
 # find temperature at MEDIAN
 temp_at_median <- 
   complete_series_0.5 %>%
@@ -446,6 +453,10 @@ temp_at_median %>%
 temp_at_median %>%
   kruskal_test(mean.temp ~ cluster.x, data = .) # p < 0.001
 
+dunn_temp <- 
+  temp_at_median %>% 
+  dunn_test(mean.temp ~ cluster.x, p.adjust.method = "bonferroni")
+
 temp_at_median %>% 
   ggplot() +
   geom_boxplot(aes(x = cluster.x, y = mean.temp, color = cluster.x)) +
@@ -478,6 +489,10 @@ temp_at_Q3 <-
 
 temp_at_Q3 %>%
   kruskal_test(mean.temp ~ cluster.x, data = .) # p < 0.001
+
+dunn_temp_q3 <- 
+  temp_at_Q3 %>% 
+  dunn_test(mean.temp ~ cluster.x, p.adjust.method = "bonferroni")
 
 temp_at_Q3 %>% 
   ggplot() +
