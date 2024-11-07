@@ -455,13 +455,13 @@ high_res %>%
            ) %>%
   summarize(
     Q1.Lat. = quantile(latitude, 0.05),
-    # Avg.Lat = mean(latitude),
-    # SD.Lat = sd(latitude),
-    Q3.Lat = quantile(latitude, 0.95),
-    Q1.Lon. = quantile(longitude, 0.05),
-    Avg.Long = mean(longitude),
+    Avg.Lat = mean(latitude),
+    SE.Lat = std.error(latitude),
+    Q3.Lat = quantile(latitude, 0.95)
+    # Q1.Lon. = quantile(longitude, 0.05),
+    # Avg.Long = mean(longitude),
     # SD.Long = sd(longitude)
-    Q3.Lon = quantile(longitude, 0.90)
+    # Q3.Lon = quantile(longitude, 0.90)
     )
   ggplot() +
   geom_boxplot(aes(x = cluster, y = y, fill = cluster)) +

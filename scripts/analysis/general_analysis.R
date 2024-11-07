@@ -87,6 +87,36 @@ complete_series_0.5 %>%
   group_by(species) %>%
   summarize(all_max = max(all_max), grandMean = mean(mean), StErr = std.error(mean))
 
+
+## Difference Mesopelagic time ---------------------------------------------
+
+percMeso <- 
+  complete_series_0.5 %>% 
+  mutate(meso = if_else(depth < 200,
+                        1, # epipelagic
+                        2 # mesopelagic
+                        )) %>% 
+  group_by(kode, species, cluster) %>% 
+  count(meso, .drop = FALSE) %>% 
+  mutate(tot = sum(n), perc = (n/tot) * 100) %>% 
+  filter(meso == 2) %>% 
+  rename(totalObservations = tot, percentMesopelagic = perc) %>% 
+  ungroup() %>% 
+  mutate(species = factor(species, levels = complete_series_0.5$species %>% unique() %>% rev(), ordered = T))
+
+# test for equal variance
+percMeso %>% 
+  car::leveneTest(percentMesopelagic~species, data = .) # p = 0.243, variance is equal
+
+# test for extreme outliers
+percMeso %>% 
+  group_by(species) %>% 
+  identify_outliers(percentMesopelagic) %>% View() # there are no extreme outliers
+
+# perform a welch's t-test
+t.test(percentMesopelagic ~ species, data = percMeso) # p = 0.2474
+
+
 ## Differences in median daytime depth ----
 
 # identify extreme outliers
@@ -137,13 +167,64 @@ complete_series_0.5 %>%
   filter(dn == 'd') %>% 
   t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.65
 
+# difference in daytime median depth between species within each cluster
+# 5 comparisons (1 per cluster), bonferoni correction = 0.05/5 = 0.01
+
+# Epi 1
+complete_series_0.5 %>% 
+  filter(cluster == 'EPI 1') %>% 
+  group_by(species, cluster, kode, dn) %>%
+  summarize(med.depth = median(depth)) %>% 
+  ungroup() %>% 
+  filter(dn == 'd') %>% 
+  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 2.383e-06; mako = 1.68; blue = 0.66
+
+# Epi 2
+complete_series_0.5 %>% 
+  filter(cluster == 'EPI 2') %>% 
+  group_by(species, cluster, kode, dn) %>%
+  summarize(med.depth = median(depth)) %>% 
+  ungroup() %>% 
+  filter(dn == 'd') %>% 
+  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.02741; mako = 8.46; blue = 30.3
+
+# Dvm 1
+complete_series_0.5 %>% 
+  filter(cluster == 'DVM 1') %>% 
+  group_by(species, cluster, kode, dn) %>%
+  summarize(med.depth = median(depth)) %>% 
+  ungroup() %>% 
+  filter(dn == 'd') %>% 
+  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.02178; mako = 181; blue = 121
+
+# Dvm 2
+complete_series_0.5 %>% 
+  filter(cluster == 'DVM 2') %>% 
+  group_by(species, cluster, kode, dn) %>%
+  summarize(med.depth = median(depth)) %>% 
+  ungroup() %>% 
+  filter(dn == 'd') %>% 
+  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.08932; mako = 292; blue = 253
+
+# Dvm 3
+complete_series_0.5 %>% 
+  filter(cluster == 'DVM 3') %>% 
+  group_by(species, cluster, kode, dn) %>%
+  summarize(med.depth = median(depth)) %>% 
+  ungroup() %>% 
+  filter(dn == 'd') %>% 
+  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.8363; mako = 353; blue = 366
+
+
+
+
 
 ## Differences in standard deviation of depth use --------------------------
 
 # identify any extreme outliers
 complete_series_0.5 %>% 
   # recreate d.sd from time-series data
-  group_by(species, cluster, kode, dn) %>%
+  group_by(species, kode, dn) %>%
   summarize(sd.depth = sd(depth)) %>% 
   ungroup() %>% 
   # select only daytime values
@@ -154,12 +235,12 @@ complete_series_0.5 %>%
 # test for homoscedasticity
 complete_series_0.5 %>% 
   # recreate d.sd from time-series data
-  group_by(species, cluster, kode, dn) %>%
+  group_by(species, kode, dn) %>%
   summarize(sd.depth = sd(depth)) %>% 
   ungroup() %>% 
   # select only daytime values
   filter(dn == 'd') %>%
-  leveneTest(sd.depth~species, data = .) # p < 0.005 so variance equal
+  car::leveneTest(sd.depth~species, data = .) # p = 0.2136 so variance equal
 
 complete_series_0.5 %>% 
   # recreate d.sd from time-series data
@@ -430,6 +511,31 @@ complete_series_0.5 %>%
   filter(!is.na(temperature) & species == "P.glauca") %>%
   pull(temperature) %>%
   summary()
+
+
+# ## Difference in Temperature By Species ---------------------------------
+
+## equal variance
+complete_series_0.5 %>% 
+  car::leveneTest(temperature~species, data = .) # p < 0.001, unequal var.
+
+## no extreme outliers
+complete_series_0.5 %>%
+  dplyr::select(species, kode, cluster, depth, temperature) %>% 
+  group_by(species) %>% 
+  identify_outliers(temperature) %>% View() # 248 extreme outliers
+
+# use a non-parametric comparison
+
+tempXspecies <- 
+  wilcox.test(temperature ~ species, data = complete_series_0.5, conf.int = T) # p-value < 2.2e-16
+
+complete_series_0.5 %>%
+  ggplot(aes(x = species, y = temperature, fill = species)) +
+  geom_jitter(alpha = 0.5, shape = 21) +
+  geom_boxplot(alpha = 0.7) +
+  theme_classic()
+  
 
 
 ## Difference in Temperature @ Median/Q3 Depth --------------------------------
