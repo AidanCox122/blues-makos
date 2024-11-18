@@ -41,7 +41,9 @@ combo_series <- read_csv('data/clean/Series/combo_series.csv')
 all_series <- read_rds('data/clean/Series/all_sharks.rds')
 
 # read in high resolution time-at-depth summaries
-high_res <- read_csv('data/clean/high_resolution_summaries.csv') 
+high_res <- 
+  read_csv('data/clean/high_resolution_summaries.csv') %>% 
+  left_join(clust_stamp2, by = 'kode')
   
 
 # figure 1 ----------------------------------------------------------------
@@ -475,7 +477,7 @@ color_dendro <-
   color_branches(
     ordered_dendro,
     clusters = color.leafs$cluster,
-    col = c("yellow",
+    col = c("yellow2",
             "yellow3",
             "#488E9EFF",
             "#404C8BFF",
@@ -568,10 +570,11 @@ for(x in names(heatmap_tad)) {
     theme_minimal() +
     theme(legend.position = 'top')+
     scale_y_reverse(breaks = c(0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), labels = c("0", "10", "50", "100", "200", "300", "400", "500", "2000")) +
-    theme(aspect.ratio = 20/10)
+    theme(axis.text.y = element_text(size = 20),
+          aspect.ratio = 20/10)
   
   ggsave(plot = heatmap,
-         filename = paste('products/figures/figure3/', x, '.png', sep = ''),
+         filename = paste('products/figures/figure3/', x, '_', Sys.Date(), '.png', sep = ''),
          width = 300,
          height = 240,
          units = 'mm')
@@ -589,14 +592,15 @@ cluster_series <-
   filter(cluster <= 5) %>% 
   mutate(ogCluster = cluster,
          cluster = case_when(
-           cluster == 1 ~ 'DVM 1',
-           cluster == 2 ~ 'Epipelagic',
-           cluster == 3 ~ 'DVM 2',
-           cluster == 4 ~ 'DVM 3',
-           cluster == 5 ~ 'DVM 4'),
-         cluster = factor(cluster, levels = c('Epipelagic', 'DVM 1', 'DVM 2', 'DVM 3', 'DVM 4'), ordered = T))
-  
-ggplot(data = cluster_series, aes(x = Local_Time, y = depth) ) +
+           cluster == 1 ~ 'EPI 2',
+           cluster == 2 ~ 'DVM 1',
+           cluster == 3 ~ 'EPI 1',
+           cluster == 4 ~ 'DVM 2',
+           cluster == 5 ~ 'DVM 3'),
+         cluster = factor(cluster, levels = c('EPI 1', 'EPI 2', 'DVM 1', 'DVM 2', 'DVM 3'), ordered = T))
+require(viridis)
+fig4 <- 
+  ggplot(data = cluster_series, aes(x = Local_Time, y = depth) ) +
   stat_bin_2d(aes(fill = after_stat(ndensity)), geom = "tile", bins = c(100, 100)) +
   scale_fill_gradientn(colors = viridis(100), limits = c(0,0.5), oob = scales::squish) + 
   labs(fill = "Relative Density (log)") +
@@ -606,7 +610,17 @@ ggplot(data = cluster_series, aes(x = Local_Time, y = depth) ) +
   ylab("Depth (m)") +
   facet_grid(species.x~cluster) +
   theme_linedraw() +
-  theme(legend.position = 'bottom')
+  theme(axis.title = element_text(size= 28),
+        axis.text.y = element_text(size = 22),
+        axis.text.x = element_text(size = 20),
+        legend.position = 'bottom')
+
+ggsave(plot = fig4,
+       filename = 'products/figures/figure4/figure4_2024_11_17.png',
+       dpi = 500,
+       width = 300,
+       height = 240,
+       units = 'mm')
 
 # figure 5 ----------------------------------------------------------------
 
@@ -1183,9 +1197,12 @@ clust_map <-
       'DVM 2',
       'DVM 3',
       'EPI 1',
-      'EPI 2')))
+      'EPI 2')),
+    Species = factor(species.x, levels = c('I.oxyrinchus', 'P.glauca'), ordered = T))
 
-ggplot() +
+# figure 1
+f1_cluster_map <- 
+  ggplot() +
   geom_sf(data = world) +
   geom_contour(data = r_df,
                aes(x = x,
@@ -1200,22 +1217,33 @@ ggplot() +
   geom_point(data = clust_map, 
              aes(x = x,
                  y = y,
-                 color = species),
+                 color = Species),
              shape = 20) +
+  scale_color_manual(values = c("#F8766D", "#00BFC4")) +
   coord_sf(xlim = c(-80, -35), ylim = c(9, 45)) +
   # guides(color = 'none') +
   labs(x = 'Longitude', y = 'Latitude') +
   facet_wrap(~cluster, nrow = 2) + 
-  theme_minimal()
+  theme_minimal() + 
+  theme(legend.position = 'bottom')
+
+# save the plot
+ggsave(
+  paste0('products/figures/figure1/cluster_map_', Sys.Date(), '.png'),
+  width = 8,
+  height = 6,
+  units = 'in',
+  f1_cluster_map,
+  dpi = 500,
+  bg = 'white')
 
 high_res %>% 
   group_by(cluster) %>% 
-  summarize(lon.min = min(x),
-            lon.max = max(x),
-            lat.min = min(y),
-            lat.max = max(y),
-            med.lon = median(x),
-            med.lat = median(y)) %>% 
+  summarize(lat.min = min(y),
+            lat.q1 = quantile(y, 0.25),
+            med.lat = median(y),
+            lat.q3 = quantile(y, 0.75),
+            lat.max = max(y)) %>%
   mutate(cluster = case_when(
     cluster == 1 ~ 'EPI 2',
     cluster == 2 ~ 'DVM 1',
@@ -1230,29 +1258,98 @@ high_res %>%
       'EPI 2'))) %>% 
   ggplot() +
   geom_sf(data = world) +
-  # geom_rect(aes(xmin = lon.min,
-  #               xmax = lon.max,
-  #               ymin = lat.min,
-  #               ymax = lat.max),
-  #           fill = NA,
-  #           color = 'black',
-  #           alpha = 0.5) +
-  geom_point(data = clust_map,
+  geom_rect(aes(xmin = -85, xmax = -30, ymin = lat.q1, ymax = lat.q3, fill = cluster), color = 'grey60', alpha = 0.4) +
+  geom_hline(aes(yintercept = med.lat),
+             color = 'grey20',
+             linetype = 'dashed',
+             alpha = 0.7) +
+  geom_point(data = clust_map, 
              aes(x = x,
                  y = y,
-                 color = species),
+                 color = Species),
              shape = 20) +
-  geom_hline(aes(yintercept = med.lat),
-             linetype = 'dashed',
-             alpha = 0.8) +
-  geom_vline(aes(xintercept = med.lon),
-             linetype = 'dashed',
-             alpha = 0.8) +
   coord_sf(xlim = c(-80, -35), ylim = c(9, 45)) +
+  scale_color_manual(values = c("#F8766D", "#00BFC4")) +
+  scale_fill_manual(values = c("#488E9EFF",
+                               "#404C8BFF",
+                               "#281A2CFF",
+                               "yellow",
+                               "yellow3")) +
   guides(color = 'none') +
   labs(x = 'Longitude', y = 'Latitude') +
-  facet_wrap(~cluster, nrow = 2)
+  facet_wrap(~cluster, nrow = 2) +
+  theme_minimal()
 
+# single map colored by cluster
+ggplot() +
+  geom_sf(data = world) +
+  geom_contour(data = r_df,
+               aes(x = x,
+                   y = y,
+                   z = z),
+               color = "black",
+               alpha = 0.5,
+               breaks = c(-1000)) +
+  geom_point(data = clust_map, 
+             aes(x = x,
+                 y = y,
+                 color = cluster),
+             shape = 20) +
+  scale_color_manual(values = c("#488E9EFF",
+                               "#404C8BFF",
+                               "#281A2CFF",
+                               "yellow",
+                               "yellow3")) +
+  coord_sf(xlim = c(-80, -35), ylim = c(9, 45)) +
+  # guides(color = 'none') +
+  labs(x = 'Longitude', y = 'Latitude') +
+  theme_minimal()
+
+### Distance from Shore Boxplots ----
+dist_shelf <- 
+  read_csv('/Users/aidansmacpro/Desktop/blues-makos/data/processed/projected_dist_to_shelf.csv') %>%
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'EPI 2',
+    cluster == 2 ~ 'DVM 1',
+    cluster == 3 ~ 'EPI 1',
+    cluster == 4 ~ 'DVM 2',
+    cluster == 5 ~ 'DVM 3'),
+    cluster = factor(cluster, levels = c(
+      'EPI 2', 
+      'EPI 1',
+      'DVM 3',
+      'DVM 2', 
+      'DVM 1'),
+      ordered = T))
+
+lat_boxplot <- 
+  ggplot() +
+  # closest to farthest order of distance to 1000: DVM1, EPI2, EPI1, DVM3, DVM2
+  geom_boxplot(data = dist_shelf, aes(x = cluster, y = distance/1000, fill = cluster), alpha = 0.8) +
+  # same pattern but more exaggerated 
+  # geom_boxplot(data = dist_shelf, aes(x = cluster, y = distance, fill = cluster)) +
+  scale_fill_manual(values = c("yellow3",
+                               "yellow",
+                               "#281A2CFF",
+                               "#404C8BFF",
+                               "#488E9EFF")) +
+  scale_x_discrete(position = 'top') +
+  labs(x = '', y = '') +
+  coord_flip() +
+  guides(fill = 'none') +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 16),
+        axis.text.y = element_text(size = 16))
+
+# save the plot
+ggsave(
+  paste0('products/figures/figure1/latitude_boxplot_', Sys.Date(), '.png'),
+  width = 7,
+  height = 7,
+  units = 'in',
+  lat_boxplot,
+  dpi = 500,
+  bg = 'white')
 
 ## Temperature Profiles ----------------------------------------------------
 # what was the range of depths targeted by sharks in each cluster
@@ -1284,7 +1381,8 @@ depth_summary_stats <-
     Median = median(depth, na.rm = T), 
     Quartile3 = quantile(depth, 0.75))
 
-combo_series %>%
+temperature_plots <-
+  combo_series %>%
   # add cluster designations
   left_join(clust_stamp2, by = 'kode') %>% 
   # remove NA observation w. no clusters
@@ -1298,55 +1396,67 @@ combo_series %>%
            cluster == 4 ~ 'DVM 2',
            cluster == 5 ~ 'DVM 3'), 
          cluster = factor(cluster,
-                          levels = c('EPI 1',
-                                     'EPI 2',
-                                     'DVM 1',
+                          levels = c('DVM 1',
                                      'DVM 2',
-                                     'DVM 3'),
+                                     'DVM 3', 
+                                     'EPI 1',
+                                     'EPI 2'),
                           ordered = T)) %>%  
   # group the data
-  group_by(cluster, depth) %>% 
+  group_by(cluster, depth) %>%
   summarise(
     temperature = mean(temperature, na.rm = T)) %>% #View()
   # get temperature every 10m
-  filter(depth %in% seq(from = 0, to = 2000, by = 10)) %>% #View()
+  # filter(depth %in% seq(from = 0, to = 2000, by = 10)) %>% #View()
   ggplot() +
-  geom_point(aes(x = temperature, y = depth, color = factor(cluster))) +
   geom_rect(data = depth_summary_stats, aes(xmin = 0,
                                             xmax = 27,
                                             ymin = Quartile1,
                                             ymax = Quartile3,
-                                            fill = factor(cluster)),
+                                            fill = cluster),
             alpha = 0.5) +
-  # add a line for the first and third quartiles
-  geom_hline(data = depth_summary_stats,
-             aes(yintercept = Quartile1),
-             color = 'grey22',
-             linetype = 'dashed',
-             linewidth = 0.1) +
+  # add a line for the first and third quartile
   geom_hline(data = depth_summary_stats,
              aes(yintercept = Quartile3),
-             color = 'grey22',
+             color = 'grey50',
              linetype = 'dashed',
-             linewidth = 0.1) +
+             linewidth = 0.3) +
+  geom_hline(data = depth_summary_stats,
+             aes(yintercept = Quartile1),
+             color = 'grey50',
+             linetype = 'dashed',
+             linewidth = 0.3) +
   # add a darker line for the median
   geom_hline(data = depth_summary_stats,
-             aes(yintercept = Median),
-             color = 'grey1',
+             aes(yintercept = Median, color = cluster),
+             color = 'black',
              linetype = 'solid',
              linewidth = 0.3) +
-  scale_color_manual(values = c("yellow",
-                                "yellow3",
-                                "#488E9EFF",
-                                "#404C8BFF",
-                                "#281A2CFF")) +
+  geom_point(aes(x = temperature, y = depth, fill = cluster), color = 'black', shape = 21, stroke = 0.5, size = 2.5) +
+  # geom_vline(aes(xintercept = 17.8), linetype = 'solid',linewidth = 0.3, alpha = 0.7) +
+  # geom_vline(aes(xintercept = 15.6), linetype = 'dashed',linewidth = 0.3, alpha = 0.7) +
+  scale_x_continuous(expand = c(0,0)) +
   scale_fill_manual(values = c("yellow",
                                "yellow3",
                                "#488E9EFF",
                                "#404C8BFF",
                                "#281A2CFF")) +
+  scale_color_manual(values = c("yellow",
+                                "yellow3",
+                                "#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF")) +
+  guides(color = 'none', fill = 'none') + 
   facet_wrap(~cluster) +
   labs(x = 'Temperature (ºC)', y = 'Depth (m)') +
   scale_y_reverse() +
-  theme_linedraw()
+  theme_linedraw() +
+  theme(axis.title = element_text(size = 28),
+        axis.text = element_text(size = 22))
 
+ggsave(plot = temperature_plots,
+       filename = 'products/figures/figure3.5/temp_profiles.png',
+       dpi = 500,
+       width = 300,
+       height = 240,
+       units = 'mm')

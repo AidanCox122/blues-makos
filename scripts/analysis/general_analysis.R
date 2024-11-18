@@ -559,6 +559,11 @@ temp_at_median <-
   summarize(mean.temp = mean(temperature)) %>% 
   ungroup()
 
+# what was the temperature at median depth of each cluster?
+temp_at_median %>%
+  group_by(cluster.x) %>%
+  summarize(m.temp = mean(mean.temp), se.temp = std.error(mean.temp))
+
 # test assumptions
 ## equal variance
 temp_at_median %>% 
@@ -605,6 +610,12 @@ temp_at_Q3 <-
   group_by(kode, cluster.x) %>% 
   summarize(mean.temp = mean(temperature)) %>% 
   ungroup()
+
+# what was the temperature at median depth of each cluster?
+temp_at_Q3 %>%
+  group_by(cluster.x) %>%
+  summarize(m.temp = mean(mean.temp), se.temp = std.error(mean.temp))
+
 
 temp_at_Q3 %>%
   kruskal_test(mean.temp ~ cluster.x, data = .) # p < 0.001

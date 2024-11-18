@@ -462,7 +462,7 @@ high_res %>%
     # Avg.Long = mean(longitude),
     # SD.Long = sd(longitude)
     # Q3.Lon = quantile(longitude, 0.90)
-    )
+    ) %>% 
   ggplot() +
   geom_boxplot(aes(x = cluster, y = y, fill = cluster)) +
   scale_fill_manual(values = c("#FFFF5CFF",
