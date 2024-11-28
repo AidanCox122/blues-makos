@@ -116,6 +116,10 @@ percMeso %>%
 # perform a welch's t-test
 t.test(percentMesopelagic ~ species, data = percMeso) # p = 0.2474
 
+# perform a kruskal-test
+percMeso %>% 
+  rstatix::kruskal_test(percentMesopelagic ~ species,
+                        data = .) # p = 0.346
 
 ## Differences in median daytime depth ----
 
@@ -165,7 +169,11 @@ complete_series_0.5 %>%
   summarize(med.depth = median(depth)) %>% 
   ungroup() %>% 
   filter(dn == 'd') %>% 
-  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.65
+  # perform a kruskal-test
+  rstatix::kruskal_test(med.depth ~ species,
+                        data = .) # p = 0.193
+  # perform welch test
+  # t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.65
 
 # difference in daytime median depth between species within each cluster
 # 5 comparisons (1 per cluster), bonferoni correction = 0.05/5 = 0.01
@@ -177,7 +185,11 @@ complete_series_0.5 %>%
   summarize(med.depth = median(depth)) %>% 
   ungroup() %>% 
   filter(dn == 'd') %>% 
-  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 2.383e-06; mako = 1.68; blue = 0.66
+  # perform a kruskal-test
+  rstatix::kruskal_test(med.depth ~ species,
+                        data = .) # p = 0.000823
+  # perform a welch-test
+  # t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 2.383e-06; mako = 1.68; blue = 0.66
 
 # Epi 2
 complete_series_0.5 %>% 
@@ -186,7 +198,11 @@ complete_series_0.5 %>%
   summarize(med.depth = median(depth)) %>% 
   ungroup() %>% 
   filter(dn == 'd') %>% 
-  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.02741; mako = 8.46; blue = 30.3
+  # perform a kruskal-test
+  rstatix::kruskal_test(med.depth ~ species,
+                        data = .) # p = 0.00118
+  # perform a welch-test
+  # t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.02741; mako = 8.46; blue = 30.3
 
 # Dvm 1
 complete_series_0.5 %>% 
@@ -194,8 +210,12 @@ complete_series_0.5 %>%
   group_by(species, cluster, kode, dn) %>%
   summarize(med.depth = median(depth)) %>% 
   ungroup() %>% 
-  filter(dn == 'd') %>% 
-  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.02178; mako = 181; blue = 121
+  filter(dn == 'd') %>% # group_by(species) %>% summarize(MeanDepth = mean(med.depth), StdErrDepth = std.error(med.depth))
+  # perform a kruskal-test
+  rstatix::kruskal_test(med.depth ~ species,
+                        data = .) # p = 0.014
+  # perform a welch-test
+  # t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.02178; mako = 181; blue = 121
 
 # Dvm 2
 complete_series_0.5 %>% 
@@ -203,8 +223,12 @@ complete_series_0.5 %>%
   group_by(species, cluster, kode, dn) %>%
   summarize(med.depth = median(depth)) %>% 
   ungroup() %>% 
-  filter(dn == 'd') %>% 
-  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.08932; mako = 292; blue = 253
+  filter(dn == 'd') %>% #group_by(species) %>% summarize(MeanDepth = mean(med.depth), StdErrDepth = std.error(med.depth))
+  # perform a kruskal-test
+  rstatix::kruskal_test(med.depth ~ species,
+                        data = .) # p = 0.00228
+  # perform a welch-test
+  # t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.08932; mako = 292; blue = 253
 
 # Dvm 3
 complete_series_0.5 %>% 
@@ -213,7 +237,11 @@ complete_series_0.5 %>%
   summarize(med.depth = median(depth)) %>% 
   ungroup() %>% 
   filter(dn == 'd') %>% 
-  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.8363; mako = 353; blue = 366
+  # perform a kruskal-test
+  rstatix::kruskal_test(med.depth ~ species,
+                        data = .) # p = 0.64
+  # perform a welch-test
+  # t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.8363; mako = 353; blue = 366
 
 
 
@@ -249,6 +277,10 @@ complete_series_0.5 %>%
   ungroup() %>% 
   # select only daytime values
   filter(dn == 'd') %>% 
+  # perform a kruskal-test
+  rstatix::kruskal_test(sd.depth ~ species,
+                        data = .) # p = 0.0787
+  # welch-test
   t.test(sd.depth ~ species, data = ., var.equal = FALSE) # p = 0.05579
 
 

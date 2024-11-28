@@ -225,8 +225,14 @@ high_res %>%
          
 ## 1. WHO: what was the frequency of clusters between species? ----
 
-high_res %>% 
+high_res %>%
   filter(cluster <= 5) %>% 
+  mutate(cluster = case_when(
+    cluster == 1 ~ 'EPI 2',
+    cluster == 2 ~ 'DVM 1',
+    cluster == 3 ~ 'EPI 1',
+    cluster == 4 ~ 'DVM 2',
+    cluster == 5 ~ 'DVM 3')) %>% 
   group_by(species, cluster) %>% 
   summarize(n = n())
 
