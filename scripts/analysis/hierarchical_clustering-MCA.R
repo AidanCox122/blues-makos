@@ -112,11 +112,11 @@ high_res %>%
   summarise(
     # daytime bins
     'day.0-10' = mean(d.b1),
-    # d.b1.sd = sd(d.b1),
+    d.b1.sd = sd(d.b1),
     'day.10-50' = mean(d.b2),
     # d.b2.sd = sd(d.b2),
     'day.50-100' = mean(d.b3),
-    # d.b3.sd = sd(d.b3),
+    d.b3.sd = sd(d.b3),
     'day.100-200' = mean(d.b4),
     # d.b4.sd = sd(d.b4),
     'day.200-300' = mean(d.b5),
@@ -131,11 +131,11 @@ high_res %>%
     
     # nighttime bins
     'night.0-10' = mean(n.b1),
-    # n.b1.sd = sd(n.b1),
+    n.b1.sd = sd(n.b1),
     'night.10-50' = mean(n.b2),
     # n.b2.sd = sd(n.b2),
     'night.50-100' = mean(n.b3),
-    # n.b3.sd = sd(n.b3),
+    n.b3.sd = sd(n.b3),
     'night.100-200' = mean(n.b4),
     n.b4.sd = sd(n.b4),
     'night.200-300' = mean(n.b5),
@@ -184,8 +184,6 @@ high_res %>%
     
 ## exact average depth targeted ----
 
-### read in fine-scale data ----
-
 combo_series %>%
   left_join(clust_stamp2) %>% 
   mutate(
@@ -202,6 +200,27 @@ combo_series %>%
   group_by(cluster, dn) %>% 
   summarize(
     Med.depth = median(depth))
+
+# calculate range of median values for individual sharks
+combo_series %>%
+  left_join(clust_stamp2) %>% 
+  mutate(
+    cluster = case_when(
+      cluster == 1 ~ 'EPI 2',
+      cluster == 2 ~ 'DVM 1',
+      cluster == 3 ~ 'EPI 1',
+      cluster == 4 ~ 'DVM 2',
+      cluster == 5 ~ 'DVM 3')) %>%
+  # remove 1207 incomplete / continental shelf observations 
+  filter(!is.na(cluster)) %>% # pull(kode) %>% unique() %>% length()
+  # remove any observations not classified as d or n (281 time recs.)
+  filter(!is.na(dn)) %>% 
+  group_by(cluster, ptt, dn) %>% 
+  summarize(
+    Med.depth = median(depth)) %>% 
+  group_by(cluster, dn) %>% 
+  summarize(Max.Med.depth = max(Med.depth),
+            Min.Med.depth = min (Med.depth)) %>% View()
 
 ## 2. WHEN: when do the clusters occur in time ----
 

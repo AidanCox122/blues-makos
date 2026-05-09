@@ -8,6 +8,8 @@ library(rnaturalearthdata)
 library(rgeos)
 library(ggspatial)
 library(sf)
+library(rgdal)
+library(ggrepel)
 library(raster)
 library(cmocean)
 library(HMMoce)
@@ -486,6 +488,8 @@ color_dendro <-
 # create a pdf object for the dendrogram plot
 pdf(file = 'products/figures/figure3/color_dendrogram.pdf', width = 10, height = 7)
 
+# set linewidth of dendrogram
+par(lwd = 5)
 # save the plot to the above pdf object
 plot(color_dendro)
 
@@ -610,9 +614,9 @@ fig4 <-
   ylab("Depth (m)") +
   facet_grid(species.x~cluster) +
   theme_linedraw() +
-  theme(axis.title = element_text(size= 28),
-        axis.text.y = element_text(size = 22),
-        axis.text.x = element_text(size = 20),
+  theme(axis.title = element_text(size= 22),
+        axis.text.y = element_text(size = 16),
+        axis.text.x = element_text(size = 16),
         legend.position = 'bottom')
 
 ggsave(plot = fig4,
@@ -1186,6 +1190,7 @@ high_res %>%
 
 clust_map <- 
   high_res %>% 
+  rename(species.x=species) %>% 
   mutate(cluster = case_when(
     cluster == 1 ~ 'EPI 2',
     cluster == 2 ~ 'DVM 1',
@@ -1200,20 +1205,34 @@ clust_map <-
       'EPI 2')),
     Species = factor(species.x, levels = c('I.oxyrinchus', 'P.glauca'), ordered = T))
 
+load('data/raw/gs_contour.rda')
+
+gs.df <- 
+  fortify(gs)
+
+gs.sf <- 
+  st_as_sf(gs) %>% 
+  st_set_crs(4326)
+
+gs.sf <- 
+  st_read('gis/gs_sf.shp') %>% 
+  st_transform(crs(world))
+
 # figure 1
-f1_cluster_map <- 
+f1_cluster_map <-
   ggplot() +
-  geom_sf(data = world) +
-  geom_contour(data = r_df,
-               aes(x = x,
-                   y = y,
-                   z = z),
-               color = "black",
-               alpha = 0.5,
-               breaks = c(-1000)) +
-  geom_point(data = clust_map %>% dplyr::select(-c(cluster)), 
-             aes(x = x,
-                 y = y), color = 'grey70', alpha = 0.5, shape = 20) +
+  geom_sf(data = world, fill = 'slategray3', color = NA, alpha = 0.5) +
+  geom_sf(data=gs.sf, color = 'red4', linewidth = 1.5, alpha = 0.9)+
+  # geom_contour(data = r_df,
+  #              aes(x = x,
+  #                  y = y,
+  #                  z = z),
+  #              color = "black",
+  #              alpha = 0.5,
+  #              breaks = c(-1000)) +
+  # geom_point(data = clust_map %>% dplyr::select(-c(cluster)), 
+  #            aes(x = x,
+  #                y = y), color = 'grey70', alpha = 0.5, shape = 20) +
   geom_point(data = clust_map, 
              aes(x = x,
                  y = y,
@@ -1224,7 +1243,7 @@ f1_cluster_map <-
   # guides(color = 'none') +
   labs(x = 'Longitude', y = 'Latitude') +
   facet_wrap(~cluster, nrow = 2) + 
-  theme_minimal() + 
+  theme_classic() + 
   theme(legend.position = 'bottom')
 
 # save the plot
@@ -1338,13 +1357,16 @@ lat_boxplot <-
   coord_flip() +
   guides(fill = 'none') +
   theme_classic() +
-  theme(axis.text.x = element_text(size = 16),
-        axis.text.y = element_text(size = 16))
+  theme(axis.text.x = element_text(size = 25),
+        axis.ticks.length = unit(0.3, 'cm'),
+        axis.ticks = element_line(linewidth = 1),
+        axis.line = element_line(linewidth = 1.3),
+        axis.text.y = element_text(size = 25))
 
 # save the plot
 ggsave(
   paste0('products/figures/figure1/latitude_boxplot_', Sys.Date(), '.png'),
-  width = 7,
+  width = 8.5,
   height = 7,
   units = 'in',
   lat_boxplot,
@@ -1352,37 +1374,10 @@ ggsave(
   bg = 'white')
 
 ## Temperature Profiles ----------------------------------------------------
-# what was the range of depths targeted by sharks in each cluster
-depth_summary_stats <- 
-  combo_series %>%
-  # add cluster designations
-  left_join(clust_stamp2, by = 'kode') %>% 
-  # add correct cluster names
-  mutate(ogCluster = cluster,
-         cluster = case_when(
-           cluster == 1 ~ 'EPI 2',
-           cluster == 2 ~ 'DVM 1',
-           cluster == 3 ~ 'EPI 1',
-           cluster == 4 ~ 'DVM 2',
-           cluster == 5 ~ 'DVM 3'), 
-         cluster = factor(cluster,
-                          levels = c('EPI 1',
-                                     'EPI 2',
-                                     'DVM 1',
-                                     'DVM 2',
-                                     'DVM 3'),
-                          ordered = T)) %>% 
-  # select only daytime observations
-  filter(dn == 'd' & !is.na(cluster)) %>% 
-  # group the data by cluser
-  group_by(cluster) %>% 
-  summarize(
-    Quartile1 = quantile(depth, 0.25),
-    Median = median(depth, na.rm = T), 
-    Quartile3 = quantile(depth, 0.75))
-
 temperature_plots <-
   combo_series %>%
+  # select two representative sharks
+  filter(ptt == 163096 | ptt == 133018) %>% 
   # add cluster designations
   left_join(clust_stamp2, by = 'kode') %>% 
   # remove NA observation w. no clusters
@@ -1401,58 +1396,42 @@ temperature_plots <-
                                      'DVM 3', 
                                      'EPI 1',
                                      'EPI 2'),
-                          ordered = T)) %>%  
+                          ordered = T),
+         group = base::cut(depth, breaks = seq(from = 0, to = 2000, by = 10), labels = F)) %>%  
   # group the data
   group_by(cluster, depth) %>%
   summarise(
-    temperature = mean(temperature, na.rm = T)) %>% #View()
+    temperature = mean(temperature, na.rm = T), .groups = 'drop') %>% #View()
+    # convert group back to depth
+    # mutate(
+    #   depth = (group * 10)-10) %>% 
+    # get rid of two high points for EPI2
+    # filter(temperature < 22.5 | cluster != 'EPI 2') %>%
   # get temperature every 10m
-  # filter(depth %in% seq(from = 0, to = 2000, by = 10)) %>% #View()
+  filter(depth %in% seq(from = 0, to = 2000, by = 10)) %>% #View()
   ggplot() +
-  geom_rect(data = depth_summary_stats, aes(xmin = 0,
-                                            xmax = 27,
-                                            ymin = Quartile1,
-                                            ymax = Quartile3,
-                                            fill = cluster),
-            alpha = 0.5) +
-  # add a line for the first and third quartile
-  geom_hline(data = depth_summary_stats,
-             aes(yintercept = Quartile3),
-             color = 'grey50',
-             linetype = 'dashed',
-             linewidth = 0.3) +
-  geom_hline(data = depth_summary_stats,
-             aes(yintercept = Quartile1),
-             color = 'grey50',
-             linetype = 'dashed',
-             linewidth = 0.3) +
-  # add a darker line for the median
-  geom_hline(data = depth_summary_stats,
-             aes(yintercept = Median, color = cluster),
-             color = 'black',
-             linetype = 'solid',
-             linewidth = 0.3) +
-  geom_point(aes(x = temperature, y = depth, fill = cluster), color = 'black', shape = 21, stroke = 0.5, size = 2.5) +
+  geom_point(aes(x = temperature, y = depth), fill = 'gray50', color = 'gray40', size = 1, shape = 21, stroke = 0.5, alpha = 0.5) +
+  geom_smooth(aes(x = temperature, y = depth, color = cluster), size = 1.5, se = F, method = 'loess', span = 1) +
   # geom_vline(aes(xintercept = 17.8), linetype = 'solid',linewidth = 0.3, alpha = 0.7) +
   # geom_vline(aes(xintercept = 15.6), linetype = 'dashed',linewidth = 0.3, alpha = 0.7) +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_fill_manual(values = c("yellow",
-                               "yellow3",
-                               "#488E9EFF",
+  scale_x_continuous(expand = c(0,0), breaks = seq(12, 26, by = 2)) +
+  scale_fill_manual(values = c("#488E9EFF",
                                "#404C8BFF",
-                               "#281A2CFF")) +
-  scale_color_manual(values = c("yellow",
-                                "yellow3",
-                                "#488E9EFF",
+                               "#281A2CFF",
+                               "yellow",
+                               "yellow3")) +
+  scale_color_manual(values = c("#488E9EFF",
                                 "#404C8BFF",
-                                "#281A2CFF")) +
+                                "#281A2CFF",
+                                "yellow",
+                                "yellow3")) +
   guides(color = 'none', fill = 'none') + 
-  facet_wrap(~cluster) +
+  # facet_wrap(~cluster) +
   labs(x = 'Temperature (ºC)', y = 'Depth (m)') +
-  scale_y_reverse() +
-  theme_linedraw() +
-  theme(axis.title = element_text(size = 28),
-        axis.text = element_text(size = 22))
+  scale_y_reverse(breaks = seq(0, 700, by = 100)) +
+  theme_classic() +
+  theme(axis.title = element_text(size = 20),
+        axis.text = element_text(size = 16))
 
 ggsave(plot = temperature_plots,
        filename = 'products/figures/figure3.5/temp_profiles.png',
@@ -1460,3 +1439,88 @@ ggsave(plot = temperature_plots,
        width = 300,
        height = 240,
        units = 'mm')
+
+
+
+## Time-at-Temperature Plots -----------------------------------------------
+# Time-at-temperature Histogram sub-plot 
+# step 1: calculate the percentage of time in each depth bin for each day for each individual
+all.bin.temp <-
+  combo_series %>% 
+  # remove any NA temperature records
+  filter(!is.na(temperature)) %>% 
+  group_by(kode, species, dn) %>% 
+  # place each depth measurement in its appropriate bin
+  mutate(
+    bin = cut(temperature, breaks = c(0,15,16,17,18,19,20,21,22,23,30), labels = seq(1:10), include.lowest = TRUE)) %>% #View()
+  # count the number of observations in each bin
+  count(bin, .drop = FALSE) %>% 
+  # find the total number of observations from each day from day and night
+  mutate(tot = sum(n)) %>% 
+  # filter out observations which are less than 50% complete
+  filter(tot >= 144) %>% 
+  # calculate the percent of time in each bin
+  mutate(perc = (n / tot)*100) %>% 
+  ungroup() %>%
+  # add in cluster
+  left_join(
+    clust_stamp2,
+    by = c('kode', 'species')) %>% 
+  # step 2: calculate the mean and standard error for each bin at the species level
+  group_by(cluster, dn, bin) %>%
+  summarize(m.perc = mean(perc), se = std_err(perc)) %>% 
+  mutate(bin = as.numeric(bin),
+         cluster = case_when(
+           cluster == 1 ~ 'EPI 2',
+           cluster == 2 ~ 'DVM 1',
+           cluster == 3 ~ 'EPI 1',
+           cluster == 4 ~ 'DVM 2',
+           cluster == 5 ~ 'DVM 3'), 
+         cluster = factor(cluster,
+                          levels = c('DVM 1',
+                                     'DVM 2',
+                                     'DVM 3', 
+                                     'EPI 1',
+                                     'EPI 2'),
+                          ordered = T)) %>% 
+  # remove non-clustered obs
+  filter(!is.na(cluster))
+
+# step 3: graph it
+for(x in unique(all.bin.temp$cluster)) {
+  time.at.temp.plot <- 
+    all.bin.temp %>% 
+    filter(cluster == x) %>% 
+    ggplot() +
+    geom_col(data = . %>% filter(dn == "d"), aes(x = bin, y = -m.perc), width = 1, fill = NA, color = "black") +
+    geom_errorbar(data = . %>% filter(dn == "d"), aes(x = bin, ymin = (-m.perc), ymax = (-m.perc-se)), width = 0.5, color = "black", alpha = 0.6) +
+    geom_col(data = . %>% filter(dn == "n"), aes(x = bin, y = m.perc), width = 1, fill = "grey", color= "black") +
+    geom_errorbar(data = . %>% filter(dn == "n"), aes(x = bin, ymin = (m.perc), ymax = (m.perc+se)), width = 0.5, color = "black", alpha = 0.6) +
+    scale_x_continuous(breaks = seq(0, 10, by = 1), labels = c('', '<15', '15-16', '16-17', '17-18', '18-19', '19-20', '20-21', '21-22', '22-23', '≥23')) +
+    scale_y_continuous(limits = c(-40,40), breaks = seq(-40,40, by = 10), position = "left") +
+    xlab("Temperature (ºC)") +
+    ylab("Percentage of Time") +
+    coord_flip() +
+    facet_wrap(~cluster, nrow = 2) +
+    theme_classic() + 
+    theme(plot.margin = unit(rep(0, 4), "cm"),
+          legend.position = "none",
+          axis.text = element_text(size = 16),
+          axis.title = element_text(size = 18))
+  
+  ggsave(
+    paste0('products/figures/figure3.5/time-at-temp/', x,'_time-at-temp_', Sys.Date(), '.png'),
+    width = 8,
+    height = 6,
+    units = 'in',
+    time.at.temp.plot,
+    dpi = 500,
+    bg = 'white')
+  
+  rm(x, time.at.temp.plot)
+    
+}
+
+  
+
+

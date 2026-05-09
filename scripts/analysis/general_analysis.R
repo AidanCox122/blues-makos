@@ -76,19 +76,37 @@ complete_series_0.5 <-
       'EPI 1',
       'EPI 2'))) %>% 
   # remove any observations without clusters
-  filter(!is.na(cluster)) #85633 observations removed
+  filter(!is.na(cluster)) # #786 unique records - this matches sample size for clustering methods - 85633 observations removed
+
+## average depth by species----
+complete_series_0.5 %>%
+  group_by(species) %>% # maximum across individual days
+  summarize(mean.depth = mean(depth),
+            sd.depth = sd(depth)) 
 
 ## average maximum depth by species----
 complete_series_0.5 %>%
-  group_by(species, ptt, kode) %>% # maximum across individual days
+  group_by(species, ptt.x, kode) %>% # maximum across individual days
   summarize(max = max(depth)) %>%
-  group_by(species, ptt) %>% 
+  group_by(species, ptt.x) %>% 
   summarize(all_max = max(max), mean = mean(max)) %>% 
   group_by(species) %>%
   summarize(all_max = max(all_max), grandMean = mean(mean), StErr = std.error(mean))
 
+# average depth by species
+complete_series_0.5 %>% 
+  group_by(species) %>% 
+  summarize(mean.Depth = mean(depth),
+            sd.Depth = sd(depth))
 
 ## Difference Mesopelagic time ---------------------------------------------
+
+percMeso %>%
+  group_by(species) %>%
+  summarize(Min.Meso = min(percentMesopelagic),
+            Mean.Meso = mean(percentMesopelagic),
+            SD.Meso = sd(percentMesopelagic),
+            Max.Meso = max(percentMesopelagic))
 
 percMeso <- 
   complete_series_0.5 %>% 
@@ -111,7 +129,7 @@ percMeso %>%
 # test for extreme outliers
 percMeso %>% 
   group_by(species) %>% 
-  identify_outliers(percentMesopelagic) %>% View() # there are no extreme outliers
+  identify_outliers(percentMesopelagic) # there are no extreme outliers
 
 # perform a welch's t-test
 t.test(percentMesopelagic ~ species, data = percMeso) # p = 0.2474
@@ -128,8 +146,8 @@ complete_series_0.5 %>%
   group_by(cluster, kode, dn) %>%
   summarize(med.depth = median(depth)) %>% 
   ungroup() %>% 
-  filter(dn == 'd') %>% 
-  identify_outliers(med.depth) # there are nine extreme outliers
+  filter(dn == 'd') %>%
+  identify_outliers(med.depth) # there are no extreme outliers
 
 # test homoscedasticity
 complete_series_0.5 %>% 
@@ -137,7 +155,7 @@ complete_series_0.5 %>%
   summarize(med.depth = median(depth)) %>% 
   ungroup() %>% 
   filter(dn == 'd') %>% 
-  car::leveneTest(med.depth~cluster, data = .) # p > 0.05            
+  car::leveneTest(med.depth~cluster, data = .) # p < 0.001            
 
 
 oneW_depth_aov <- 
@@ -173,7 +191,12 @@ complete_series_0.5 %>%
   rstatix::kruskal_test(med.depth ~ species,
                         data = .) # p = 0.193
   # perform welch test
-  # t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.65
+# complete_series_0.5 %>% 
+#   group_by(species, kode, dn) %>%
+#   summarize(med.depth = median(depth)) %>% 
+#   ungroup() %>% 
+#   filter(dn == 'd') %>% 
+#   t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.65
 
 # difference in daytime median depth between species within each cluster
 # 5 comparisons (1 per cluster), bonferoni correction = 0.05/5 = 0.01
@@ -212,10 +235,9 @@ complete_series_0.5 %>%
   ungroup() %>% 
   filter(dn == 'd') %>% # group_by(species) %>% summarize(MeanDepth = mean(med.depth), StdErrDepth = std.error(med.depth))
   # perform a kruskal-test
-  rstatix::kruskal_test(med.depth ~ species,
-                        data = .) # p = 0.014
+  # rstatix::kruskal_test(med.depth ~ species, data = .) # p = 0.014
   # perform a welch-test
-  # t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.02178; mako = 181; blue = 121
+  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.02178; mako = 181; blue = 121
 
 # Dvm 2
 complete_series_0.5 %>% 
@@ -225,10 +247,9 @@ complete_series_0.5 %>%
   ungroup() %>% 
   filter(dn == 'd') %>% #group_by(species) %>% summarize(MeanDepth = mean(med.depth), StdErrDepth = std.error(med.depth))
   # perform a kruskal-test
-  rstatix::kruskal_test(med.depth ~ species,
-                        data = .) # p = 0.00228
+  # rstatix::kruskal_test(med.depth ~ species, data = .) # p = 0.00228
   # perform a welch-test
-  # t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.08932; mako = 292; blue = 253
+  t.test(med.depth ~ species, data = ., var.equal = FALSE) # p = 0.08932; mako = 292; blue = 253
 
 # Dvm 3
 complete_series_0.5 %>% 
@@ -447,6 +468,13 @@ dist_shelf <-
       'DVM 3'),
       ordered = T))
 
+## DISTANCE TO 1000M
+dist_1000 %>% 
+  group_by(cluster) %>% 
+  summarize(
+    mean.dist.km = mean(distance/1000),
+    sd.dist.km = std.error((distance/1000)))
+
 # test for difference in distance to 1000m isobath by clusters
 aov_1000 <- aov(distance ~ cluster,
                     data = dist_1000)
@@ -454,7 +482,7 @@ aov_1000 <- aov(distance ~ cluster,
 summary(aov_1000) # p < 0.001
 
 # test if data met anova assumptions
-## equal variance
+## equal variance?
 dist_1000 %>% 
   car::leveneTest(distance~cluster, data = .) # p < 0.001, unequal var.
 
@@ -486,6 +514,13 @@ tukey.1000 <- glht(aov_1000, linfct = mcp(cluster = "Tukey"))
 
 summary(tukey.1000)
 
+## DISTANCE FROM SHELF
+dist_shelf %>% #filter(cluster %in% c('DVM 2', 'DVM 3')) %>% 
+  group_by(cluster) %>%
+  summarize(
+    mean.dist.km = mean(distance)/1000,
+    sd.dist.km = sd(distance)/1000) %>% View()
+
 # test for difference in distance to shelf by cluster
 aov_shelf <- aov(distance ~ cluster,
                 data = dist_shelf)
@@ -512,7 +547,7 @@ dist_shelf %>%
   rstatix::kruskal_test(distance ~ cluster,
                         data = .) # there is a highly signif. difference btwn. clusters
 
-summary(kw.1000)
+summary(kw.shelf)
 
 # post hoc tests
 dunn.shelf <- 
@@ -522,7 +557,7 @@ dunn.shelf <-
 # visualize the differences
 ggplot() +
   # closest to farthest order of distance to 1000: DVM1, EPI2, EPI1, DVM3, DVM2
-  geom_boxplot(data = dist_1000, aes(x = cluster, y = distance, fill = cluster)) +
+  geom_boxplot(data = dist_shelf, aes(x = cluster, y = distance, fill = cluster)) +
   # same pattern but more exaggerated 
   # geom_boxplot(data = dist_shelf, aes(x = cluster, y = distance, fill = cluster)) +
   scale_fill_manual(values = c("yellow",
@@ -544,6 +579,14 @@ complete_series_0.5 %>%
   pull(temperature) %>%
   summary()
 
+# depth of the 15C isotherm
+complete_series_0.5 %>% 
+  filter(near(temperature, 15, tol = 0.1)) %>% 
+  group_by(cluster) %>% 
+  summarize(
+    mean.z = mean(depth),
+    sd = sd(depth))
+
 
 # ## Difference in Temperature By Species ---------------------------------
 
@@ -557,10 +600,19 @@ complete_series_0.5 %>%
   group_by(species) %>% 
   identify_outliers(temperature) %>% View() # 248 extreme outliers
 
-# use a non-parametric comparison
+# use a welch's t-test on all temperature data
+complete_series_0.5 %>% 
+  t.test(temperature ~ species, data = ., var.equal = FALSE) # p < 0.0001
+# this might be an artifact of mako sharks generally occurring smaller geographic range
 
-tempXspecies <- 
-  wilcox.test(temperature ~ species, data = complete_series_0.5, conf.int = T) # p-value < 2.2e-16
+# use a welch's t-test only on temperature at maximum depth
+complete_series_0.5 %>% #pull(kode) %>% unique() %>% length()
+  group_by(kode) %>% 
+  filter(depth == max(depth)) %>% 
+  dplyr::select(species, kode, depth, temperature) %>% 
+  distinct() %>% 
+  filter(!is.na(temperature)) %>% #group_by(species) %>% count() # 404 observations (90 mako; 314 blue)
+  t.test(temperature ~ species, data = ., var.equal = FALSE)
 
 complete_series_0.5 %>%
   ggplot(aes(x = species, y = temperature, fill = species)) +
@@ -572,50 +624,60 @@ complete_series_0.5 %>%
 
 ## Difference in Temperature @ Median/Q3 Depth --------------------------------
 # find temperature at MEDIAN
-temp_at_median <- 
+test <- 
   complete_series_0.5 %>%
-  dplyr::select(species, cluster, kode, dn, depth, temperature, latitude, longitude) %>% 
+  dplyr::select(species, cluster, kode, n, dn, depth, temperature, latitude, longitude) %>% 
   filter(!is.na(temperature) & dn == 'd') %>% 
-  left_join(
-    # find the median depth for each species on each day
-    complete_series_0.5 %>% 
-      group_by(cluster, kode, dn) %>%
-      summarize(med.depth = median(depth)) %>% 
-      ungroup() %>% 
-      filter(dn == 'd'),
-    by = 'kode') %>% 
-  # identify median depth
-  filter(depth == med.depth) %>%  # 443 unique kodes
-  # there are 14,000 entries because sharks may have visited median depth as many as 256 times
-  group_by(kode, cluster.x) %>% 
-  summarize(mean.temp = mean(temperature)) %>% 
-  ungroup()
+  group_by(kode) %>% 
+  arrange(depth) %>% 
+  mutate(row = row_number())
+
+test_even <- 
+  test %>% 
+  # find only tracking days with even numbered obs
+  filter(max(row) %% 2 == 0) %>% 
+  filter(row == max(row)/2 | row == (max(row)/2) + 1) #%>% pull(kode) %>% unique() %>% length()
+
+test_odd <- 
+  test %>% 
+  filter(max(row) %% 2 == 1) %>%
+  filter(depth == median(depth)) #%>% pull(kode) %>% unique() %>% length()
+
+temp_at_median <- 
+  rbind(test_even, test_odd) %>% 
+  ungroup() %>% 
+  # remove any duplicated depth observations to avoid biasing the calculation
+  dplyr::select(species, cluster, kode, dn, depth, temperature) %>% 
+  # 559 obs., 131 mako and 428 blue
+  distinct() #%>% group_by(species) %>% summarize(count = n())
+
+rm(test, test_even, test_odd)
 
 # what was the temperature at median depth of each cluster?
-temp_at_median %>%
-  group_by(cluster.x) %>%
-  summarize(m.temp = mean(mean.temp), se.temp = std.error(mean.temp))
+temp_at_median %>% filter(cluster %in% c('DVM 1', 'DVM 2', 'DVM 3')) %>% 
+  # group_by(cluster) %>%
+  summarize(m.temp = mean(temperature), sd.temp = sd(temperature))
 
 # test assumptions
 ## equal variance
 temp_at_median %>% 
-  car::leveneTest(mean.temp~cluster.x, data = .) # p < 0.001, unequal var.
+  car::leveneTest(temperature~cluster, data = .) # p < 0.001, unequal var.
 
 ## no extreme outliers
 temp_at_median %>%
-  group_by(cluster.x) %>% 
-  identify_outliers(mean.temp) # no extreme outliers
+  group_by(cluster) %>% 
+  identify_outliers(temperature) # no extreme outliers
 
 temp_at_median %>%
-  kruskal_test(mean.temp ~ cluster.x, data = .) # p < 0.001
+  kruskal_test(temperature ~ cluster, data = .) # p < 0.001
 
 dunn_temp <- 
   temp_at_median %>% 
-  dunn_test(mean.temp ~ cluster.x, p.adjust.method = "bonferroni")
+  dunn_test(temperature ~ cluster, p.adjust.method = "bonferroni")
 
 temp_at_median %>% 
   ggplot() +
-  geom_boxplot(aes(x = cluster.x, y = mean.temp, color = cluster.x)) +
+  geom_boxplot(aes(x = cluster, y = temperature, color = cluster)) +
   scale_color_manual(values = c("#488E9EFF",
                                 "#404C8BFF",
                                 "#281A2CFF",
@@ -624,41 +686,51 @@ temp_at_median %>%
   theme_classic()
 
 ## Find temperature at Q3
-temp_at_Q3 <- 
+test <- 
   complete_series_0.5 %>%
-  dplyr::select(species, cluster, kode, dn, depth, temperature, latitude, longitude) %>% 
+  dplyr::select(species, cluster, kode, n, dn, depth, temperature, latitude, longitude) %>% 
   filter(!is.na(temperature) & dn == 'd') %>% 
-  left_join(
-    # find the median depth for each species on each day
-    complete_series_0.5 %>% 
-      group_by(cluster, kode, dn) %>%
-      summarize(q3.depth = quantile(depth, 0.75)) %>% 
-      ungroup() %>% 
-      filter(dn == 'd'),
-    by = 'kode') %>% 
-  # identify median depth
-  filter(depth == q3.depth) %>%  # 443 unique kodes
-  # there are 9,972 entries because sharks may have visited median depth as many as 256 times
-  group_by(kode, cluster.x) %>% 
-  summarize(mean.temp = mean(temperature)) %>% 
-  ungroup()
+  group_by(kode) %>% 
+  arrange(depth) %>% 
+  mutate(row = row_number())
 
-# what was the temperature at median depth of each cluster?
+test_even <- 
+  test %>% 
+  # find only tracking days with even numbered obs
+  filter(max(row) %% 2 == 0) %>% 
+  filter(row == floor((max(row) * 0.75)+0.25) | row == ceiling((max(row) * 0.75)+0.25)) #%>% pull(kode) %>% unique() %>% length()
+
+test_odd <- 
+  test %>% 
+  filter(max(row) %% 2 == 1) %>%
+  filter(depth == quantile(depth, 0.75))
+
+temp_at_Q3 <- 
+  rbind(test_even, test_odd) %>% 
+  ungroup() %>% 
+  # remove any duplicated depth observations to avoid biasing the calculation
+  dplyr::select(species, cluster, kode, dn, depth, temperature) %>% 
+  # 559 obs., 131 mako and 428 blue
+  distinct() #%>% group_by(species) %>% summarize(count = n())
+
+rm(test, test_even, test_odd)
+
+# what was the temperature at q3 depth of each cluster?
+temp_at_Q3 %>% #filter(cluster %in% c('DVM 2', 'DVM 3')) %>% 
+  group_by(cluster) %>%
+  summarize(m.temp = mean(temperature), sd.temp = sd(temperature))
+
+
 temp_at_Q3 %>%
-  group_by(cluster.x) %>%
-  summarize(m.temp = mean(mean.temp), se.temp = std.error(mean.temp))
-
-
-temp_at_Q3 %>%
-  kruskal_test(mean.temp ~ cluster.x, data = .) # p < 0.001
+  kruskal_test(temperature ~ cluster, data = .) # p < 0.001
 
 dunn_temp_q3 <- 
   temp_at_Q3 %>% 
-  dunn_test(mean.temp ~ cluster.x, p.adjust.method = "bonferroni")
+  dunn_test(temperature ~ cluster, p.adjust.method = "bonferroni")
 
 temp_at_Q3 %>% 
   ggplot() +
-  geom_boxplot(aes(x = cluster.x, y = mean.temp, color = cluster.x)) +
+  geom_boxplot(aes(x = cluster, y = temperature, color = cluster)) +
   scale_color_manual(values = c("#488E9EFF",
                                 "#404C8BFF",
                                 "#281A2CFF",
