@@ -9,7 +9,7 @@ library(vegan)
 library(ggdendro)
 # mapping
 library(rnaturalearthdata)
-library(rgeos)
+# library(rgeos)
 library(ggspatial)
 library(sf)
 
@@ -92,7 +92,7 @@ high_res <- high_res %>%
 clust_stamp2 <- high_res %>%
   dplyr::select(kode, species, cluster)
 
-
+# write_csv(clust_stamp2, 'data/clean/cluster_stamp.csv')
 
 # cluster summaries -------------------------------------------------------
 
