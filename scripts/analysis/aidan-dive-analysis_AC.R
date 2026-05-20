@@ -2,6 +2,8 @@
 # setup -------------------------------------------------------------------
 
 library(tidyverse)
+library(glmmTMB)
+library(DHARMa)
 devtools::load_all('../../Documents/Ecology/Marine/tags2etuff')
 
 cluster_stamp <- 
@@ -251,22 +253,21 @@ bout_duration <-
   left_join(
     mesoBout_stamp,
     by = c('species', 'ptt', 'instrument_name', 'mesoBout')) %>%  # final n = 3734
-  mutate(cluster = factor(cluster, levels = c('EPI 1', 'EPI 2', 'DVM 1', 'DVM 2', 'DVM 3 ')))
+  filter(!is.na(cluster)) %>% 
+  mutate(cluster = factor(cluster, levels = c('EPI 1', 'EPI 2', 'DVM 1', 'DVM 2', 'DVM 3'), ordered = T))
 
 
 # visualize distribution
 bout_duration %>% 
-  filter(!is.na(cluster)) %>%
   ggplot() +
-  geom_histogram(aes(x = duration.min), color = 'black', fill = 'grey', binwidth = 5) +
+  geom_histogram(aes(x = (duration.min)), color = 'black', fill = 'grey', binwidth = 5) +
   annotate(geom = 'text', label = 'binwidth = 5 mins.', fontface = 'italic', color = 'grey', x = 750, y = 300, size = 5) +
   coord_cartesian() +
   theme_classic()
 
 # distribution by cluster
-duration.freqpoly.cluster <- 
+duration.freqpoly.cluster <-
   bout_duration %>% 
-  filter(!is.na(cluster)) %>%
   ggplot() + 
   geom_freqpoly(aes(x = log10(duration.min), color = cluster, group = ptt)) +
   geom_vline(data = bout_duration %>% group_by(cluster, species) %>% summarize(median = median(duration.min), .groups = 'drop'), aes(xintercept = log10(median), linetype = species), alpha = 0.5) +
@@ -276,15 +277,15 @@ duration.freqpoly.cluster <-
                                 "yellow3",
                                 "#488E9EFF",
                                 "#404C8BFF",
-                                "#281A2CFF"))
+                                "#281A2CFF")) +
   theme_classic()
 
-# ggsave(
-#   duration.freqpoly,
-#   file = 'products/figures/revisions/exploration/duration_freqpoly.png',
-#   height = 6,
-#   width = 8,
-#   dpi = 300)
+ggsave(
+  duration.freqpoly.cluster,
+  file = 'products/figures/revisions/exploration/duration_freqpoly_cluster.png',
+  height = 6,
+  width = 8,
+  dpi = 300)
 
 # distribution by species
 duration.freqpoly.species <- 
@@ -304,4 +305,93 @@ ggsave(
   width = 8,
   dpi = 300)
 
+# boxplots to visualize variation
+bout_duration %>% 
+  ggplot() + 
+  geom_boxplot(aes(x = cluster, y = log10(duration.min), color = cluster)) +
+  scale_color_manual(values = c("yellow",
+                                "yellow3",
+                                "#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF")) +
+  coord_cartesian() +
+  guides(color = 'none') +
+  theme_classic()
+
+## model duration ----
+# full model
+d.mod1 <- 
+  bout_duration %>% 
+  glmmTMB(
+    duration.min ~ cluster + species + cluster:species,
+    contrasts = list(cluster = 'contr.sum', species = 'contr.sum'),
+    family = gaussian(link = 'log'),
+    data = .)
+
+d.mod2 <- 
+  bout_duration %>% 
+  glmmTMB(
+    duration.min ~ cluster + species + cluster:species + (1|species:ptt),
+    contrasts = list(cluster = 'contr.sum', species = 'contr.sum'),
+    family = gaussian(link = 'log'),
+    data = .)
+
+d.mod3 <- 
+  bout_duration %>% 
+  glmmTMB(
+    duration.min ~ cluster + species + cluster:species + (1|species),
+    contrasts = list(cluster = 'contr.sum', species = 'contr.sum'),
+    family = gaussian(link = 'log'),
+    data = .)
+
+AIC(d.mod1, d.mod2, d.mod3)
+anova(d.mod1, d.mod2, d.mod3) # d.mod2 best
+drop1(d.mod2)
+
+summary(d.mod2)
+
+car::Anova(d.mod2, type = 'III')
+
+sim1 <- DHARMa::simulateResiduals(d.mod2)
+plot(sim1)
+
+testDispersion(sim1) # no overdispersion
+
+testCategorical(sim1, catPred = bout_duration$cluster) # heteroscedastic
+testCategorical(sim1, catPred = bout_duration$species) # heteroscedastic
+
+# add a dispersion parameter
+d.mod4 <- 
+  bout_duration %>% 
+  glmmTMB(
+    duration.min ~ cluster + species + cluster:species + (1|species:ptt),
+    contrasts = list(cluster = 'contr.sum', species = 'contr.sum'),
+    dispformula = ~cluster,
+    data = .)
+
+d.mod5 <- 
+  bout_duration %>% 
+  glmmTMB(
+    duration.min ~ cluster + species + cluster:species + (1|species:ptt),
+    contrasts = list(cluster = 'contr.sum', species = 'contr.sum'),
+    dispformula = ~species,
+    data = .)
+
+d.mod6 <- 
+  bout_duration %>% 
+  glmmTMB(
+    duration.min ~ cluster + species + cluster:species + (1|species:ptt),
+    contrasts = list(cluster = 'contr.sum', species = 'contr.sum'),
+    dispformula = ~cluster+species,
+    data = .)
+
+anova(d.mod2, d.mod4, d.mod5, d.mod6) # strong support for d.mod4
+
+sim2 <- simulateResiduals(d.mod6)
+plot(sim2)  
+
+testDispersion(sim2) # no overdispersion
+
+testCategorical(sim2, catPred = bout_duration$cluster) # heteroscedastic
+testCategorical(sim2, catPred = bout_duration$species) # heteroscedastic
 
