@@ -503,7 +503,12 @@ dev.off()
 ## can't use those transmitted by tags due to lower temporal resolution
 blue.bin.depth <- 
   combo_series %>% 
-  filter(species == 'P.glauca') %>% 
+  # select only tracking days used in clustering
+  filter(kode %in% clust_stamp2$kode) %>% 
+  # select blue sharks
+  filter(species == 'P.glauca') %>%
+  # select only daytime records
+  filter(dn == 'd') %>% 
   mutate(
     bin = 
       cut(depth,
@@ -514,13 +519,17 @@ blue.bin.depth <-
   group_by(ptt, Date) %>%
   count(bin, .drop = FALSE) %>% 
   mutate(tot = sum(n)) %>% 
-  filter(tot >= 280) %>% 
   mutate(perc = (n / tot)*100) %>% 
   ungroup()
 
 mako.bin.depth <- 
   combo_series %>% 
+  # select only tracking days used in clustering
+  filter(kode %in% clust_stamp2$kode) %>%
+  # select mako sharks
   filter(species == 'I.oxyrinchus') %>% 
+  # select only daytime records
+  filter(dn == 'd') %>% 
   mutate(
     bin = 
       cut(depth,
@@ -531,7 +540,6 @@ mako.bin.depth <-
   group_by(ptt, Date) %>%
   count(bin, .drop = FALSE) %>% 
   mutate(tot = sum(n)) %>% 
-  filter(tot >= 280) %>% 
   mutate(perc = (n / tot)*100) %>% 
   ungroup()
 
@@ -554,7 +562,7 @@ add_rows <- function(x) {
   c1 <- inner_join(c1, date_stmp, by = c("Date", "kode"))
   return(c1)
 }
-  
+
 heatmap_tad <- 
   c(1:5) %>% 
   map(
@@ -583,9 +591,6 @@ for(x in names(heatmap_tad)) {
          height = 240,
          units = 'mm')
 }
-
-
-
 
 # figure 4 ----------------------------------------------------------------
 
@@ -1015,7 +1020,24 @@ op %>%
 
 # supplementary -----------------------------------------------------------
 
+## cluster seasonality plot
 
+cluster_stamp %>%
+  separate(kode, into = c('Date', 'ptt'), sep = '_', remove = F) %>%
+  mutate(Date = lubridate::ymd(Date), month = lubridate::month(Date)) %>% 
+  group_by(month, cluster) %>% 
+  summarize(count = n(), .groups = 'drop') %>% 
+  mutate(
+    cluster = factor(cluster, levels = c('EPI 1', 'EPI 2', 'DVM 1', 'DVM 2', 'DVM 3'), ordered = T),
+    month = factor(month, levels = c(9,10,11,12,1,2,3,4), ordered =  T)) %>% 
+  ggplot() +
+  geom_line(aes(x = month, y = count, color = cluster, group = cluster)) + 
+  scale_color_manual(values = c("yellow",
+                                "yellow3",
+                                "#488E9EFF",
+                                "#404C8BFF",
+                                "#281A2CFF")) +
+  theme_classic()
 ## industrial series plots -------------------------------------------------
 
 # create an object with series data for the cluster of interest

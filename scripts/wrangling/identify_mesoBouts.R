@@ -338,7 +338,14 @@ bout_frequency <-
     mesoBout_stamp %>% dplyr::select(-c(mesoBout)) %>% distinct(),
     by = c('instrument_name', 'species', 'ptt', 'kode')) %>% 
   filter(!is.na(cluster)) %>% 
-  mutate(cluster = factor(cluster, levels = c('EPI 1', 'EPI 2', 'DVM 1', 'DVM 2', 'DVM 3'), ordered = T))
+  # add in lat and lon
+  left_join(
+    latlon_stamp %>% group_by(kode) %>% summarize(lat = mean(latitude, na.rm = T), lon = mean(longitude, na.rm = T)),
+    by = c('kode')) %>% # several mesoBouts are associated with multiple location estimates
+  mutate(
+    month = lubridate::month(date),
+    cluster = factor(cluster, levels = c('EPI 1', 'EPI 2', 'DVM 1', 'DVM 2', 'DVM 3'), ordered = T)) 
+  
 
 # cold exposure -----------------------------------------------------------
 

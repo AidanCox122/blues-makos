@@ -10,12 +10,6 @@ source('scripts/wrangling/identify_mesoBouts.R')
 
 # exploration -------------------------------------------------------------
 
-# visualize correlations
-bout_duration %>% 
-  transmute(duration.min, cluster = as.numeric(cluster), species = as.numeric(factor(species)), month, lat) %>% 
-  PerformanceAnalytics::chart.Correlation()
-
-
 # visualize distribution
 bout_duration %>% 
   ggplot() +
@@ -79,6 +73,16 @@ bout_duration %>%
 
 # modelling ---------------------------------------------------------------
 
+# visualize correlations
+bout_duration %>% 
+  transmute(duration.min, cluster = as.numeric(cluster), species = as.numeric(factor(species)), month, lat) %>% 
+  PerformanceAnalytics::chart.Correlation()
+
+# remove outliers for test modelling
+bout_duration <- 
+  bout_duration %>% 
+  filter(duration.min < 250) # this removes 36 records (DVM1-4; DVM2-14; DVM3-18)
+
 # full model
 d.mod1 <- 
   bout_duration %>% 
@@ -110,24 +114,6 @@ d.mod3 <-
 d.mod4 <- 
   bout_duration %>% 
   glmmTMB(
-    duration.min ~ cluster + species + cluster:species + (1|ptt) + (1|ptt:Date),
-    contrasts = list(cluster = 'contr.sum', species = 'contr.sum'),
-    family = Gamma(link = 'log'),
-    REML = F,
-    data = .)
-
-d.mod5 <- 
-  bout_duration %>% 
-  glmmTMB(
-    duration.min ~ cluster + species + cluster:species + (1|species:ptt) + (1|ptt:Date),
-    contrasts = list(cluster = 'contr.sum', species = 'contr.sum'),
-    family = Gamma(link = 'log'),
-    REML = F,
-    data = .)
-
-d.mod6 <- 
-  bout_duration %>% 
-  glmmTMB(
     duration.min ~ cluster + species + cluster:species + (species|ptt),
     contrasts = list(cluster = 'contr.sum', species = 'contr.sum'),
     family = Gamma(link = 'log'),
@@ -135,18 +121,18 @@ d.mod6 <-
     data = .)
 
 # get AIC weights
-vAIC <- AIC(d.mod1, d.mod2, d.mod3, d.mod4, d.mod5, d.mod6)[,2]
-dAIC <- vAIC - min(vAIC)
-AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
+vAIC <- AIC(d.mod1, d.mod2, d.mod3, d.mod4)[,2]
+dAIC <- vAIC - min(vAIC, na.rm = T)
+AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2), na.rm = T)
 AICw #d.mod4 is hands down best
 
-drop1(d.mod4)
+drop1(d.mod2)
 
 summary(d.mod4)
 
-car::Anova(d.mod4, type = 'III')
+car::Anova(d.mod2, type = 'III')
 
-sim1 <- DHARMa::simulateResiduals(d.mod4)
+sim1 <- DHARMa::simulateResiduals(d.mod2)
 plot(sim1)
 
 plotQQunif(sim1)
@@ -202,7 +188,7 @@ dAIC <- vAIC - min(vAIC)
 AICw <- exp(-dAIC/2) / sum(exp(-dAIC/2))
 AICw #d.mod9
 
-sim2 <- simulateResiduals(d.mod9)
+sim2 <- simulateResiduals(d.mod7)
 plot(sim2)  
 plotQQunif(sim2)
 
