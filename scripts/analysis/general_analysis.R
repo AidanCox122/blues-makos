@@ -80,9 +80,11 @@ complete_series_0.5 <-
 
 ## average depth by species----
 complete_series_0.5 %>%
+  group_by(species, ptt.x) %>% 
+  summarize(m.depth = mean(depth)) %>% 
   group_by(species) %>% # maximum across individual days
-  summarize(mean.depth = mean(depth),
-            sd.depth = sd(depth)) 
+  summarize(mean.depth = mean(m.depth),
+            sd.depth = sd(m.depth)) 
 
 ## average maximum depth by species----
 complete_series_0.5 %>%

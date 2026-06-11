@@ -132,3 +132,104 @@ pre.dist.ptt + post.dist.ptt
 base.dist.ptt
 
 
+## remake fig 6 (thorrold et al., 2014) ------------------------------------
+
+# calculate weighted quantiles for boxplots
+## simple way
+pre_weighted_boxplots <-
+  surface_use %>% 
+  mutate(dn = if_else(dn == 'd', 'Daylight', 'Nighttime')) %>%
+  group_by(ptt, species, dn) %>% 
+  summarize(
+    ymin.ptt = min(pre.prop.50),
+    lower.ptt = quantile(pre.prop.50, 0.25),
+    median.ptt = median(pre.prop.50),
+    upper.ptt = quantile(pre.prop.50, 0.75),
+    ymax.ptt = max(pre.prop.50),
+    n.ptt = n()) %>% 
+  group_by(species, dn) %>% 
+  summarize(ymin = min(ymin.ptt),
+            lower = quantile(lower.ptt, 0.25),
+            middle = median(median.ptt),
+            upper = quantile(upper.ptt, 0.75),
+            ymax = max(ymax.ptt),
+            n = sum(n.ptt), .groups = 'drop')
+## fancy way --
+# pre_weighted_boxplots <-
+#   surface_use %>% 
+#   mutate(dn = if_else(dn == 'd', 'Daylight', 'Nighttime')) %>% 
+#   group_by(ptt) %>% 
+#   mutate(weight = 1/n()) %>% 
+#   ungroup() %>% 
+#   group_by(species, dn) %>% 
+#   summarize(
+#     ymin   = Hmisc::wtd.quantile(pre.prop.50, weights = weight, probs = 0.00),
+#     lower  = Hmisc::wtd.quantile(pre.prop.50, weights = weight, probs = 0.25),
+#     middle = Hmisc::wtd.quantile(pre.prop.50, weights = weight, probs = 0.50),
+#     upper  = Hmisc::wtd.quantile(pre.prop.50, weights = weight, probs = 0.75),
+#     ymax   = Hmisc::wtd.quantile(pre.prop.50, weights = weight, probs = 1.00), .groups = 'drop')
+
+post_weighted_boxplots <-
+  surface_use %>% 
+  mutate(dn = if_else(dn == 'd', 'Daylight', 'Nighttime')) %>%
+  group_by(ptt, species, dn) %>% 
+  summarize(
+    ymin.ptt = min(post.prop.50),
+    lower.ptt = quantile(post.prop.50, 0.25),
+    median.ptt = median(post.prop.50),
+    upper.ptt = quantile(post.prop.50, 0.75),
+    ymax.ptt = max(post.prop.50),
+    n = n()) %>% 
+  group_by(species, dn) %>% 
+  summarize(ymin = min(ymin.ptt),
+            lower = quantile(lower.ptt, 0.25),
+            middle = median(median.ptt),
+            upper = quantile(upper.ptt, 0.75),
+            ymax = max(ymax.ptt), .groups = 'drop',
+            n = sum(n)) 
+
+
+base_weighted_boxplots <-
+  baseline_surface_use %>%
+  mutate(dn = if_else(dn == 'd', 'Daylight', 'Nighttime')) %>% 
+  filter(!is.na(dn)) %>% 
+  group_by(ptt, species, dn) %>% 
+  summarize(
+    ymin.ptt = min(base.prop.50, na.rm = T),
+    lower.ptt = quantile(base.prop.50, 0.25, na.rm = T),
+    median.ptt = median(base.prop.50, na.rm = T),
+    upper.ptt = quantile(base.prop.50, 0.75, na.rm = T),
+    ymax.ptt = max(base.prop.50, na.rm = T),
+    n = n()) %>% 
+  group_by(species, dn) %>% 
+  summarize(ymin = min(ymin.ptt),
+            lower = quantile(lower.ptt, 0.25),
+            middle = median(median.ptt),
+            upper = quantile(upper.ptt, 0.75),
+            ymax = max(ymax.ptt),
+            n = sum(n), .groups = 'drop') 
+
+surface_use %>% 
+  mutate(dn = if_else(dn == 'd', 'Daylight', 'Nighttime')) %>% 
+  # calculate weights
+  group_by(ptt) %>% 
+  mutate(weight = 1/n()) %>% 
+  ungroup() %>% 
+  ggplot() + 
+  geom_violin(aes(x = -1, y = pre.prop.50), fill = 'coral4', alpha = 0.5, width = 0.75) +
+  geom_violin(aes(x = 0, y = post.prop.50), fill = 'steelblue4', alpha = 0.5, width = 0.75) +
+  geom_violin(data = baseline_surface_use %>% mutate(dn = if_else(dn == 'd', 'Daylight', 'Nighttime')) %>% filter(!is.na(dn)), aes(x = 1, y = base.prop.50), fill = 'grey25', alpha = 0.5, width = 0.75) +
+  geom_boxplot(data = pre_weighted_boxplots, aes(x = -1, ymin = ymin, lower = lower,
+                   middle = middle, upper = upper, ymax = ymax), stat = 'identity', color = 'black', fill = NA, width = 0.15) + 
+  geom_boxplot(data = post_weighted_boxplots, aes(x = 0, ymin = ymin, lower = lower,
+                                                 middle = middle, upper = upper, ymax = ymax), stat = 'identity', color = 'black', fill = NA, width = 0.15) +   
+  geom_boxplot(data = base_weighted_boxplots, aes(x = 1, ymin = ymin, lower = lower,
+                                                 middle = middle, upper = upper, ymax = ymax), stat = 'identity', color = 'black', fill = NA, width = 0.15) + 
+  facet_grid(dn~species) + 
+  labs(x = '', y = 'Proportion of Time') +
+  theme_classic() + 
+  theme(
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_blank())
+
+

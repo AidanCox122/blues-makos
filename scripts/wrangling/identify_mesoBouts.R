@@ -226,17 +226,22 @@ for(x in names(series_list)) {
     series %>%
     # select only obs. within a bout
     filter(!is.na(mesoBout)) %>% 
+    # dummy code dn
+    mutate(dn = if_else(dn == 'd', 1, 0)) %>% 
     # for each mesoBout, calculate the time difference from start to end
     group_by(instrument_name, mesoBout) %>% 
     summarize(
       start = min(DateTime),
       end = max(DateTime),
+      dn = median(dn, na.rm = T),
       max.z = max(depth, na.rm = T),
       .groups = 'drop') %>% 
     # calculate the difftime
     mutate(
       duration.min = lubridate::interval(start = start, end = end) %>% lubridate::time_length(unit = 'minutes'),
       species = if_else(str_detect(string = instrument_name, pattern = '160424'), 'P.glauca', 'I.oxyrinchus'),
+      # back transform dn
+      dn = if_else(dn == 1, 'd', 'n'),
       ptt = x)
   
   # store the answer
@@ -254,18 +259,18 @@ for(x in names(series_list)) {
 
 # add in clusers
 bout_duration <-
-  bout_duration %>% # n = 3730
+  bout_duration %>% # n = 3582
   # add in cluster ID
   left_join(
     mesoBout_stamp,
     by = c('species', 'ptt', 'instrument_name', 'mesoBout')) %>%  # final n = 3734
-  filter(!is.na(cluster)) %>% # n = 2605
+  filter(!is.na(cluster)) %>% # n = 2536
   # add in lat and lon
   left_join(
     latlon_stamp,
     by = c('kode', 'mesoBout')) %>% # several mesoBouts are associated with multiple location estimates
   # take the average position
-  group_by(instrument_name, mesoBout, start, end, max.z, duration.min, species, ptt, kode, cluster, cluster_n) %>% 
+  group_by(instrument_name, mesoBout, dn, start, end, max.z, duration.min, species, ptt, kode, cluster, cluster_n) %>% 
   summarize(lat = mean(latitude, na.rm = T), lon = mean(longitude, na.rm = T), .groups = 'drop') %>% 
   separate(kode, into = c('Date', 'ptt'), sep = '_', remove = F) %>% 
   mutate(
@@ -519,7 +524,7 @@ for(x in names(series_list)) {
     # assemble the pre and post stats w. metadata
     bout_i_final <- 
       bout_i %>% 
-      dplyr::select(-c(duration.min, max.z)) %>% 
+      dplyr::select(-c(duration.min, max.z, start.diff, end.diff)) %>% 
       cbind(pre.stats) %>% 
       cbind(post.stats)
     
